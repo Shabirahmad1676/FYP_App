@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 10.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "MAPBOX_DOWNLOADS_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "MAPBOX_DOWNLOADS_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
+      }
+    },
+    "production": {
+      "env": {
+        "MAPBOX_DOWNLOADS_TOKEN": "$MAPBOX_DOWNLOADS_TOKEN"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

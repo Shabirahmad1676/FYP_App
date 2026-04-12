@@ -1,0 +1,596 @@
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  Linking,
+  ActivityIndicator,
+  Modal,
+  Alert,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import BottomSheet, { BottomSheetView, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+// import * as Sharing from 'expo-sharing';
+import QRCode from 'react-native-qrcode-svg';
+import { formatDistanceToNow, isAfter, parseISO } from 'date-fns';
+import { supabase } from '@/lib/supabase';
+import Colors from '@/constants/colors';
+import MediaViewer from '@/components/MediaViewer';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import { logEvent } from '@/lib/analytics';
+
+export default function BillboardDetailScreen() {
+  const { id } = useLocalSearchParams();
+  const router = useRouter();
+  const [billboard, setBillboard] = useState<any>(null);
+  const [nearbyBillboards, setNearbyBillboards] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSaved, setIsSaved] = useState(false);
+  const [redemptionCode, setRedemptionCode] = useState<string | null>(null);
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [countdown, setCountdown] = useState<string>('');
+
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['50%', '92%'], []);
+
+  const activeCampaign = billboard?.campaigns?.find((c: any) => c.is_active);
+
+  useEffect(() => {
+    if (!activeCampaign?.end_date) return;
+
+    const updateCountdown = () => {
+      const end = parseISO(activeCampaign.end_date);
+      if (isAfter(end, new Date())) {
+        setCountdown(formatDistanceToNow(end, { addSuffix: false }));
+      } else {
+        setCountdown('Expired');
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 60000);
+    return () => clearInterval(interval);
+  }, [activeCampaign]);
+
+  useEffect(() => {
+    const fetchBillboard = async () => {
+      const { data, error } = await supabase
+        .from('billboards')
+        .select('*, campaigns(*)')
+        .eq('id', id)
+        .single();
+
+      if (!error && data) {
+        setBillboard(data);
+        const campaign = data.campaigns?.find((c: any) => c.is_active);
+        logEvent('tap', data.id, campaign?.id || null);
+
+        // Fetch nearby billboards
+        const { data: nearby } = await supabase
+          .from('billboards')
+          .select('*, campaigns(*)')
+          .neq('id', id)
+          .limit(5);
+
+        if (nearby) setNearbyBillboards(nearby);
+
+        // Check if saved
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && campaign) {
+          const { data: saved } = await supabase
+            .from('saved_offers')
+            .select('redemption_code')
+            .eq('user_id', session.user.id)
+            .eq('campaign_id', campaign.id)
+            .single();
+
+          if (saved) {
+            setIsSaved(true);
+            setRedemptionCode(saved.redemption_code);
+          }
+        }
+      }
+      setLoading(false);
+    };
+
+    fetchBillboard();
+  }, [id]);
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!activeCampaign) return null; // Return code for handleRedeem
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      router.push('/(auth)/login');
+      return null;
+    }
+
+    if (isSaved) return redemptionCode;
+
+    try {
+      setIsSaving(true);
+      const { data: saved, error } = await supabase
+        .from('saved_offers')
+        .insert({
+          user_id: session.user.id,
+          campaign_id: activeCampaign.id,
+        })
+        .select('redemption_code')
+        .maybeSingle();
+
+      if (error) {
+        if (error.code === '23505') { // Already saved
+          // Fetch existing code if out of sync
+          const { data: existing } = await supabase
+            .from('saved_offers')
+            .select('redemption_code')
+            .eq('user_id', session.user.id)
+            .eq('campaign_id', activeCampaign.id)
+            .single();
+
+          const code = existing?.redemption_code || null;
+          setIsSaved(true);
+          setRedemptionCode(code);
+          return code;
+        }
+        throw error;
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const newCode = saved?.redemption_code || null;
+      setIsSaved(true);
+      setRedemptionCode(newCode);
+      logEvent('save', billboard.id, activeCampaign.id);
+      return newCode;
+    } catch (err: any) {
+      console.error('Save failed:', err.message);
+      Alert.alert('Save Failed', err.message);
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRedeem = async () => {
+    if (!isSaved) {
+      const code = await handleSave();
+      if (code) {
+        setShowRedeemModal(true);
+      }
+    } else {
+      setShowRedeemModal(true);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!activeCampaign) return;
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const shareUrl = `billboardar://billboard/${id}`;
+    const message = `🔥 Check out this ${activeCampaign.title} at ${activeCampaign.business_name}! \n\nSee it in AR here: ${shareUrl}`;
+
+    try {
+      const url = `whatsapp://send?text=${encodeURIComponent(message)}`;
+      Linking.openURL(url);
+    } catch (e) {
+      console.warn('Sharing failed', e);
+    }
+  };
+
+  const handleDirections = () => {
+    if (!billboard) return;
+    const url = `https://www.google.com/maps/search/?api=1&query=${billboard.latitude},${billboard.longitude}`;
+    Linking.openURL(url);
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.black} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <Ionicons name="arrow-back" size={24} color={Colors.black} />
+      </TouchableOpacity>
+
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={0}
+        snapPoints={snapPoints}
+        handleIndicatorStyle={styles.sheetHandle}
+      >
+        <BottomSheetView style={styles.sheetContent}>
+          <BottomSheetScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            {activeCampaign && (
+              <MediaViewer
+                url={activeCampaign.media_url}
+                type={activeCampaign.media_type as any}
+              />
+            )}
+
+            <View style={styles.detailsContainer}>
+              <View style={styles.businessRow}>
+                <Image
+                  source={activeCampaign?.business_logo_url}
+                  style={styles.businessLogo}
+                />
+                <View style={styles.businessText}>
+                  <Text style={styles.businessName}>{activeCampaign?.business_name}</Text>
+                  <View style={{ flex: 1, flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                    <Badge label="Premium Partner" variant="outline" />
+                    <TouchableOpacity onPress={handleShare}>
+                      <Ionicons name="share-social-outline" size={20} color={Colors.black} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.offerHeader}>
+                <Text style={styles.offerTitle}>{activeCampaign?.title}</Text>
+              </View>
+
+              <Text style={styles.offerDescription}>{activeCampaign?.description}</Text>
+
+              <View style={styles.badgeRow}>
+                {countdown && (
+                  <Badge
+                    label={countdown === 'Expired' ? 'Expired' : `Ends in ${countdown}`}
+                    variant={countdown === 'Expired' ? 'error' : 'success'}
+                  />
+                )}
+                <Badge label="Limited Time" variant="outline" />
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.actionRow}>
+                <Button
+                  title={isSaved ? "Saved ✓" : "Save Offer"}
+                  onPress={handleSave}
+                  variant={isSaved ? "secondary" : "primary"}
+                  style={styles.actionBtn}
+                  disabled={isSaved || isSaving}
+                  loading={isSaving}
+                />
+
+              </View>
+
+              <View style={styles.actionRowSecondary}>
+                {/* <Button
+                  title="Directions"
+                  onPress={handleDirections}
+                  variant="secondary"
+                  style={styles.actionBtn}
+                /> */}
+                <Button
+                  title={(!isSaved && isSaving) ? "Saving..." : "Redeem Now"}
+                  onPress={handleRedeem}
+                  loading={!isSaved && isSaving}
+                  style={styles.actionBtn}
+                />
+              </View>
+
+              {(activeCampaign?.hours || activeCampaign?.contact) && (
+                <View style={{ marginTop: 24, gap: 12 }}>
+                  {activeCampaign.hours && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Ionicons name="time-outline" size={18} color={Colors.textSecondary} />
+                      <Text style={{ color: Colors.textSecondary }}>{activeCampaign.hours}</Text>
+                    </View>
+                  )}
+                  {activeCampaign.contact && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Ionicons name="call-outline" size={18} color={Colors.textSecondary} />
+                      <Text style={{ color: Colors.textSecondary }}>{activeCampaign.contact}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Redemption Modal */}
+              <Modal
+                visible={showRedeemModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowRedeemModal(false)}
+              >
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContent}>
+                    <TouchableOpacity
+                      style={styles.modalClose}
+                      onPress={() => setShowRedeemModal(false)}
+                    >
+                      <Ionicons name="close" size={24} color={Colors.black} />
+                    </TouchableOpacity>
+
+                    <Text style={styles.modalTitle}>Redeem Offer</Text>
+                    <Text style={styles.modalSubtitle}>Show this QR code to the shopkeeper</Text>
+
+                    <View style={styles.qrContainer}>
+                      <QRCode
+                        value={redemptionCode || id as string}
+                        size={200}
+                        color="black"
+                        backgroundColor="white"
+                      />
+                    </View>
+
+                    <Text style={styles.qrCodeText}>REDEMPTION CODE: {redemptionCode || '------'}</Text>
+                    <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 10, textAlign: 'center' }}>
+                      Show this code to the shopkeeper to claim your reward.
+                    </Text>
+
+                    <Button
+                      title="Done"
+                      onPress={() => setShowRedeemModal(false)}
+                      style={{ width: '100%', marginTop: 24 }}
+                    />
+                  </View>
+                </View>
+              </Modal>
+
+              <View style={styles.divider} />
+
+              {nearbyBillboards.length > 0 && (
+                <View style={styles.nearbySection}>
+                  <Text style={styles.sectionTitle}>Nearby Offers</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearbyScroll}>
+                    {nearbyBillboards.map((nb) => {
+                      const nbCampaign = nb.campaigns?.find((c: any) => c.is_active);
+                      return (
+                        <TouchableOpacity
+                          key={nb.id}
+                          style={styles.nearbyCard}
+                          onPress={() => router.push(`/billboard/${nb.id}`)}
+                        >
+                          <Image source={nbCampaign?.media_url} style={styles.nearbyImage} />
+                          <View style={styles.nearbyInfo}>
+                            <Text style={styles.nearbyBusiness}>{nbCampaign?.business_name}</Text>
+                            <Text style={styles.nearbyOffer} numberOfLines={1}>{nbCampaign?.title}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+
+              <View style={styles.divider} />
+
+              <View style={styles.aboutSection}>
+                <Text style={styles.sectionTitle}>About {activeCampaign?.business_name}</Text>
+                <Text style={styles.aboutText}>
+                  Located at {billboard?.address}, {billboard?.city}. Scan this billboard anytime to catch the latest deals from our premium partners in Mardan.
+                </Text>
+              </View>
+            </View>
+          </BottomSheetScrollView>
+        </BottomSheetView>
+      </BottomSheet>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 30,
+    left: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  sheetHandle: {
+    backgroundColor: Colors.black,
+    width: 40,
+  },
+  sheetContent: {
+    flex: 1,
+  },
+  detailsContainer: {
+    padding: 24,
+  },
+  scrollContent: {
+    paddingBottom: 60, // Extra padding to ensure bottom content is visible
+  },
+  businessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 24,
+  },
+  businessLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.surface,
+  },
+  businessText: {
+    gap: 4,
+  },
+  businessName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  offerTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.black,
+    letterSpacing: -0.5,
+    marginBottom: 12,
+  },
+  offerDescription: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  expiryRow: {
+    marginBottom: 24,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: 4,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionBtn: {
+    flex: 1,
+  },
+  savedBtn: {
+    borderColor: Colors.success,
+  },
+  actionRowSecondary: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  offerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderRadius: 24,
+    padding: 32,
+    width: '100%',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 1,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: Colors.black,
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  qrContainer: {
+    padding: 20,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  qrCodeText: {
+    marginTop: 16,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 1,
+  },
+  aboutSection: {
+    // gap: 12,
+    // paddingBottom: 40,
+  },
+  nearbySection: {
+    gap: 16,
+    marginBottom: 40,
+    backgroundColor: 'red'
+  },
+  nearbyScroll: {
+    gap: 16,
+  },
+  nearbyCard: {
+    width: 200,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  nearbyImage: {
+    width: '100%',
+    height: 100,
+  },
+  nearbyInfo: {
+    padding: 12,
+  },
+  nearbyBusiness: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  nearbyOffer: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.black,
+  },
+  aboutText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+  },
+});
+
+I want to keep it simple like remove the bottomSheet?
