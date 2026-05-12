@@ -19,6 +19,21 @@ export default function QRScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
+  const extractBillboardId = (raw: string) => {
+    const value = raw.trim();
+
+    // Case 1: QR contains only the UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(value)) return value;
+
+    // Case 2: billboardar://billboard/<uuid>
+    // Case 3: https://<domain>/billboard/<uuid>
+    const match = value.match(/(?:\/billboard\/|billboard:\/\/billboard\/)([0-9a-f-]{36})/i);
+    if (match && uuidRegex.test(match[1])) return match[1];
+
+    return null;
+  };
+
   useEffect(() => {
     if (!permission) requestPermission();
   }, [permission]);
@@ -31,10 +46,8 @@ export default function QRScanScreen() {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     try {
-      // Validate UUID format
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data);
-      
-      if (!isUUID) {
+      const billboardId = extractBillboardId(data);
+      if (!billboardId) {
         alert('Invalid Billboard QR Code format');
         setScanned(false);
         return;
@@ -44,7 +57,7 @@ export default function QRScanScreen() {
       const { data: billboard, error } = await supabase
         .from('billboards')
         .select('id')
-        .eq('id', data)
+        .eq('id', billboardId)
         .single();
 
       if (!error && billboard) {

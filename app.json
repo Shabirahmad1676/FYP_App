@@ -2,6 +2,19 @@
   "expo": {
     "name": "BillboardAR",
     "slug": "viroreact-starter-kit",
+    "scheme": "billboardar",
+    "intentFilters": [
+      {
+        "action": "VIEW",
+        "data": [
+          {
+            "scheme": "billboardar",
+            "host": "billboard"
+          }
+        ],
+        "category": ["BROWSABLE", "DEFAULT"]
+      }
+    ],
     "extra": {
       "eas": {
         "projectId": "99ecce4f-607b-4e37-b84a-cf0b9efa7a86"
