@@ -15,6 +15,7 @@ if (typeof global.ReadableStream === 'undefined') {
 // This prevents tests from crashing when they encounter native Viro components
 jest.mock('@reactvision/react-viro', () => {
   const React = require('react');
+  const { Text, View } = require('react-native');
   return {
     ViroARScene: ({ children }: any) => React.createElement('ViroARScene', null, children),
     ViroARSceneNavigator: ({ children }: any) => React.createElement('ViroARSceneNavigator', null, children),
@@ -28,15 +29,17 @@ jest.mock('@reactvision/react-viro', () => {
     ViroAnimations: {
       registerAnimations: jest.fn(),
     },
-    ViroFlexView: (props: any) => React.createElement('ViroFlexView', props),
-    ViroText: (props: any) => React.createElement('ViroText', props),
+    ViroFlexView: ({ onClick, onPress, children }: any) => React.createElement(View, { onPress: onClick || onPress }, children),
+    ViroText: ({ text }: any) => React.createElement(Text, null, text),
     Viro3DObject: (props: any) => React.createElement('Viro3DObject', props),
     ViroDirectionalLight: (props: any) => React.createElement('ViroDirectionalLight', props),
     ViroTrackingStateConstants: {
       TRACKING_NORMAL: 1,
+      TRACKING_UNAVAILABLE: 2,
       TRACKING_REASON_NONE: 0,
     },
     ViroARImageMarker: ({ children }: any) => React.createElement('ViroARImageMarker', null, children),
+    ViroAmbientLight: (props: any) => React.createElement('ViroAmbientLight', props),
   };
 });
 
@@ -80,7 +83,9 @@ jest.mock('@/lib/supabase', () => ({
 // 4. Mocking Expo Modules
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),
-  ImpactFeedbackStyle: { Medium: 'medium' },
+  notificationAsync: jest.fn(),
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
 }));
 
 jest.mock('expo-location', () => ({
@@ -88,4 +93,16 @@ jest.mock('expo-location', () => ({
   getCurrentPositionAsync: jest.fn(() => Promise.resolve({
     coords: { latitude: 34.198, longitude: 72.043 }
   })),
+}));
+
+// 5. Mocking expo-camera (useCameraPermissions)
+jest.mock('expo-camera', () => ({
+  useCameraPermissions: jest.fn(() => [
+    { status: 'granted', granted: true },
+    jest.fn().mockResolvedValue({ status: 'granted', granted: true }),
+  ]),
+  CameraView: ({ children }) => {
+    const React = require('react');
+    return React.createElement('CameraView', null, children);
+  },
 }));

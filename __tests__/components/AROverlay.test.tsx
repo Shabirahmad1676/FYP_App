@@ -2,6 +2,7 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import AROverlay from '../../components/AR/AROverlay';
 import { logEvent } from '../../lib/analytics';
+import { ViroNode } from '@reactvision/react-viro';
 
 // Mock analytics to spy on calls
 jest.mock('../../lib/analytics', () => ({
@@ -47,18 +48,31 @@ describe('AROverlay (Level 2 Component Tests)', () => {
   });
 
   test('implements gaze-based monetization validation via onFuse', () => {
-    // This tests the internal logic of handleGaze
-    // In our mock, ViroNodeAny (ViroNode) receives the onFuse prop
+    // AROverlay casts ViroNode as any (ViroNodeAny). The mock renders it as the same
+    // component function, so we look it up by the actual ViroNode mock reference.
     const { UNSAFE_getByType } = render(<AROverlay {...defaultProps} />);
-    
-    // Get the ViroNode (mocked as a component with the same name)
-    const node = UNSAFE_getByType('ViroNode');
-    
-    // Simulate the onFuse event (gaze for 3s)
+
+    // Use the imported ViroNode component reference (same function the mock exports)
+    const node = UNSAFE_getByType(ViroNode as any);
+
+    // Simulate the onFuse event (gaze held for 3 seconds)
     const onFuseCallback = node.props.onFuse.callback;
     onFuseCallback();
 
-    // Verify ar_view_3s analytics event
+    // Verify ar_view_3s analytics event fires exactly once
+    expect(logEvent).toHaveBeenCalledWith('ar_view_3s', 'test-bb-123', 'test-cp-456');
+  });
+
+  test('gaze event fires only once even if onFuse triggers repeatedly', () => {
+    const { UNSAFE_getByType } = render(<AROverlay {...defaultProps} />);
+    const node = UNSAFE_getByType(ViroNode as any);
+    const onFuseCallback = node.props.onFuse.callback;
+
+    onFuseCallback();
+    onFuseCallback();
+    onFuseCallback();
+
+    expect(logEvent).toHaveBeenCalledTimes(1);
     expect(logEvent).toHaveBeenCalledWith('ar_view_3s', 'test-bb-123', 'test-cp-456');
   });
 });

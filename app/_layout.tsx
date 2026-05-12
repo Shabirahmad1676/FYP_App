@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Linking from 'expo-linking';
 import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
@@ -71,6 +72,33 @@ function RootNavigator() {
     });
 
     return () => subscription.remove();
+  }, [router]);
+
+  // Handle deep links (QR code scans)
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      console.log('Deep link detected:', url);
+      
+      // Parse the URL to extract the billboard ID
+      // Formats supported:
+      // - billboardar://billboard/[id]
+      // - https://yourdomain.com/billboard/[id]
+      
+      const parsed = Linking.parse(url);
+      const path = parsed.path || '';
+      
+      // Extract billboard ID from path
+      const pathParts = path.split('/').filter(p => p);
+      if (pathParts.length >= 2 && pathParts[pathParts.length - 2] === 'billboard') {
+        const billboardId = pathParts[pathParts.length - 1];
+        if (billboardId) {
+          console.log('Navigating to billboard:', billboardId);
+          router.push(`/billboard/${billboardId}`);
+        }
+      }
+    });
+
+    return () => sub.remove();
   }, [router]);
 
   // Auth Guard and Redirection Logic
