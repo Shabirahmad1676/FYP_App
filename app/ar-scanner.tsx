@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -25,7 +25,29 @@ export default function ARScanScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const isFocused = useIsFocused();
+  // arMounted latches to true on first focus and stays true so that a momentary
+  // isFocused flicker (which happens when ARCore gains tracking lock) does NOT
+  // destroy and re-create the entire AR session.
+  const arMountedRef = useRef(false);
+  const [arMounted, setArMounted] = React.useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    if (isFocused && !arMountedRef.current) {
+      arMountedRef.current = true;
+      setArMounted(true);
+    }
+    if (!isFocused && arMountedRef.current) {
+      // Only unmount if the screen truly lost focus (navigated away), not a flicker.
+      // We use a short delay so a momentary flicker doesn't tear down the AR session.
+      const t = setTimeout(() => {
+        if (!arMountedRef.current) return;
+        arMountedRef.current = false;
+        setArMounted(false);
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [isFocused]);
 
   // 1. Data Layer: Hook for specific billboard
   const { billboard, campaign, loading: dataLoading, error: dataError } = useBillboard(id);
@@ -35,6 +57,13 @@ export default function ARScanScreen() {
   const [scanStatus, setScanStatus] = useState<'searching' | 'detected' | 'timeout'>('searching');
   const [hasPermissions, setHasPermissions] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const detectedTargetRef = useRef<string | null>(null);
+  const isDetectedRef = useRef(false);
+  const initialScene = useRef({ scene: ARScene as any }).current;
+
+  useEffect(() => {
+    isDetectedRef.current = isDetected;
+  }, [isDetected]);
 
   // Timeout Logic: Show help after 15 seconds
   useEffect(() => {
@@ -52,6 +81,7 @@ export default function ARScanScreen() {
       if (Platform.OS === 'web') return;
       
       const { status } = await requestCameraPermission();
+      console.log('[ARScanScreen] camera permission status:', status);
       if (status === 'granted') {
         setHasPermissions(true);
       }
@@ -64,7 +94,11 @@ export default function ARScanScreen() {
   useEffect(() => {
     if (billboard?.image_target_url) {
       const targetName = `target_${billboard.id}`;
-      console.log('Registering Image Target:', targetName, billboard.image_target_url);
+      console.log('[ARScanScreen] registering image target:', {
+        targetName,
+        imageTargetUrl: billboard.image_target_url,
+        physicalWidth: billboard.physical_width || 1,
+      });
       
       ViroARTrackingTargets.createTargets({
         [targetName]: {
@@ -73,22 +107,43 @@ export default function ARScanScreen() {
           physicalWidth: billboard.physical_width || 1,
         },
       });
+      console.log('[ARScanScreen] createTargets completed for:', targetName);
+    } else if (billboard) {
+      console.log('[ARScanScreen] billboard missing image_target_url:', billboard.id);
     }
   }, [billboard]);
 
   // Handlers for ARScene events
-  const handleDetected = (detectedId: string) => {
+  const handleDetected = useCallback((detectedId: string) => {
+    console.log('[ARScanScreen] handleDetected called:', {
+      detectedId,
+      expectedId: id,
+      matches: detectedId === id || !id,
+    });
     if (detectedId === id || !id) {
-       setIsDetected(true);
-       setScanStatus('detected');
-       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-  };
+      if (detectedTargetRef.current === detectedId && isDetectedRef.current) {
+        return;
+      }
 
-  const handleLost = () => {
+      detectedTargetRef.current = detectedId;
+      setIsDetected(true);
+      setScanStatus('detected');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [id]);
+
+  const handleLost = useCallback(() => {
+    console.log('[ARScanScreen] handleLost called; returning to searching state');
+    detectedTargetRef.current = null;
     setIsDetected(false);
     setScanStatus('searching');
-  };
+  }, []);
+
+  const viroAppProps = useMemo(() => ({
+    targetId: id ? `target_${id}` : null,
+    onDetected: handleDetected,
+    onLost: handleLost,
+  }), [handleDetected, handleLost, id]);
 
   const retryScan = () => {
     setScanStatus('searching');
@@ -115,18 +170,27 @@ export default function ARScanScreen() {
     );
   }
 
+  if (!id) {
+    return (
+      <View style={styles.center}>
+        <Ionicons name="warning-outline" size={64} color={Colors.error} />
+        <Text style={styles.errorText}>No billboard selected for AR scan.</Text>
+        <Text style={styles.errorSubText}>Open Map, select a billboard, then start AR Scanner.</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.replace('/(tabs)/map')}>
+          <Text style={styles.backBtnText}>Go To Map</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {isFocused && (
+      {arMounted && (
         <ViroARSceneNavigator
-          initialScene={{
-            scene: ARScene as any,
-          }}
-          viroAppProps={{ 
-            targetId: id ? `target_${id}` : null,
-            onDetected: handleDetected,
-            onLost: handleLost
-          }}
+          initialScene={initialScene}
+          autofocus={true}
+          videoQuality="High"
+          viroAppProps={viroAppProps}
           style={styles.arView}
         />
       )}
@@ -213,6 +277,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     paddingHorizontal: 40,
+  },
+  errorSubText: {
+    color: '#c9ced6',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+    marginTop: 4,
   },
   backBtn: {
     marginTop: 20,

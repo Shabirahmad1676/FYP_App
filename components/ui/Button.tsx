@@ -8,6 +8,7 @@ import {
   TextStyle,
   View
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/colors';
 
 interface ButtonProps {
@@ -18,7 +19,7 @@ interface ButtonProps {
   style?: ViewStyle | ViewStyle[];
   textStyle?: TextStyle;
   disabled?: boolean;
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | string;
 }
 
 const Button: React.FC<ButtonProps> = ({ 
@@ -49,7 +50,19 @@ const Button: React.FC<ButtonProps> = ({
         <ActivityIndicator color={isPrimary ? Colors.white : Colors.black} />
       ) : (
         <View style={styles.content}>
-          {icon && <View style={styles.iconContainer}>{icon}</View>}
+          {icon && (
+            <View style={styles.iconContainer}>
+              {typeof icon === 'string' ? (
+                <Ionicons 
+                  name={icon as any} 
+                  size={20} 
+                  color={isPrimary ? Colors.white : Colors.black} 
+                />
+              ) : (
+                icon
+              )}
+            </View>
+          )}
           <Text style={[
             styles.text,
             isPrimary ? styles.primaryText : styles.secondaryText,

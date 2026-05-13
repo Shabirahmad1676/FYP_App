@@ -230,6 +230,19 @@ export default function DiscoverScreen() {
     </TouchableOpacity>
   );
 
+  const getAutoSavedPreviewSource = (item: any): string | null => {
+    const mediaUrl = item?.media_url || null;
+    const billboardImage = item?.billboard?.image_target_url || null;
+    const logo = item?.business_logo_url || null;
+    const isVideo = item?.media_type === 'video' || mediaUrl?.includes('.mp4') || mediaUrl?.includes('gtv-videos-bucket');
+
+    if (isVideo) {
+      return billboardImage || logo || null;
+    }
+
+    return mediaUrl || billboardImage || logo || null;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -291,15 +304,27 @@ export default function DiscoverScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.nearbyList}
                     renderItem={({ item }) => (
+                      (() => {
+                        const previewSource = getAutoSavedPreviewSource(item);
+                        return (
                       <TouchableOpacity
                         style={styles.nearbyItem}
                         onPress={() => handleCampaignPress(item.billboard.id, item.id)}
                       >
                         <View style={styles.nearbyImageContainer}>
-                          <Image
-                            source={item.media_type === 'video' ? (item.billboard.image_target_url || item.business_logo_url) : item.media_url}
-                            style={styles.nearbyImage}
-                          />
+                          {previewSource ? (
+                            <Image
+                              source={previewSource}
+                              style={styles.nearbyImage}
+                              contentFit="cover"
+                              transition={250}
+                              cachePolicy="memory-disk"
+                            />
+                          ) : (
+                            <View style={styles.nearbyImageFallback}>
+                              <Ionicons name="image-outline" size={20} color={Colors.textSecondary} />
+                            </View>
+                          )}
                           <View style={styles.nearbyBadge}>
                             <Ionicons name="flash" size={12} color={Colors.white} />
                             <Text style={styles.nearbyBadgeText}>NEW</Text>
@@ -308,6 +333,8 @@ export default function DiscoverScreen() {
                         <Text style={styles.nearbyBusiness} numberOfLines={1}>{item.business_name}</Text>
                         <Text style={styles.nearbyOffer} numberOfLines={1}>{item.title}</Text>
                       </TouchableOpacity>
+                        );
+                      })()
                     )}
                   />
                 </View>
@@ -497,6 +524,13 @@ const styles = StyleSheet.create({
   nearbyImage: {
     width: '100%',
     height: '100%',
+  },
+  nearbyImageFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
   },
   nearbyBadge: {
     position: 'absolute',

@@ -16,6 +16,11 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@react-navigation/native', () => ({
   useIsFocused: jest.fn(() => true),
+  useFocusEffect: jest.fn((cb: () => void) => {
+    // run the effect once synchronously so arMounted is set in tests
+    const cleanup = cb();
+    return cleanup;
+  }),
 }));
 
 jest.mock('@expo/vector-icons', () => ({
@@ -247,6 +252,8 @@ describe('ARScanScreen — Detection Handlers', () => {
       expect(navigator.props.viroAppProps.targetId).toBe('target_billboard-123');
       expect(typeof navigator.props.viroAppProps.onDetected).toBe('function');
       expect(typeof navigator.props.viroAppProps.onLost).toBe('function');
+      expect(navigator.props.autofocus).toBe(true);
+      expect(navigator.props.videoQuality).toBe('High');
     });
   });
 
