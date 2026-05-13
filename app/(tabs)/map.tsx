@@ -16,6 +16,7 @@ import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import { isARSupportedOnDevice } from '@reactvision/react-viro';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
@@ -91,6 +92,7 @@ export default function MapScreen() {
   } | null>(null);
   const [nextStep, setNextStep] = useState<string>('');
   const [isNavigating, setIsNavigating] = useState(false); // loading state for directions
+  const [checkingArLaunch, setCheckingArLaunch] = useState(false);
   const params = useLocalSearchParams<{ navigateId?: string }>();
   const [arrived, setArrived] = useState(false);
   const watchSubscription = useRef<Location.LocationSubscription | null>(null);
@@ -467,6 +469,66 @@ export default function MapScreen() {
     }
   };
 
+  const handleLaunchARScanner = async () => {
+    if (checkingArLaunch) return;
+
+    if (!selectedBillboard?.id) {
+      Alert.alert('Select a Billboard', 'Choose a billboard on the map before opening AR scanner.');
+      return;
+    }
+
+    setCheckingArLaunch(true);
+    try {
+      let billboardForAr = selectedBillboard;
+
+      if (!billboardForAr?.image_target_url) {
+        const { data: billboardData, error: billboardError } = await supabase
+          .from('billboards')
+          .select('id, image_target_url')
+          .eq('id', selectedBillboard.id)
+          .single();
+
+        if (!billboardError && billboardData?.image_target_url) {
+          billboardForAr = { ...selectedBillboard, image_target_url: billboardData.image_target_url };
+          setSelectedBillboard((prev: any) =>
+            prev?.id === billboardData.id
+              ? { ...prev, image_target_url: billboardData.image_target_url }
+              : prev
+          );
+        } else {
+          Alert.alert('Missing AR Target', 'This billboard has no AR target image configured.');
+          return;
+        }
+      }
+
+      if (Platform.OS === 'web') {
+        throw new Error('UNSUPPORTED');
+      }
+
+      const support = await isARSupportedOnDevice();
+      if (support?.isARSupported) {
+        router.push({
+          pathname: '/ar-scanner',
+          params: { id: billboardForAr.id },
+        });
+        return;
+      }
+
+      throw new Error('UNSUPPORTED');
+    } catch {
+      Alert.alert(
+        'AR Not Supported',
+        'Your device cannot run AR scanner. You can continue with QR scan.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Use QR Scan', onPress: () => router.push('/qr-scan') },
+        ]
+      );
+    } finally {
+      setCheckingArLaunch(false);
+    }
+  };
+
   // ── Exit navigation ───────────────────────────────────────────────────────────
   const exitNavigation = () => {
     setNavigationMode(false);
@@ -828,29 +890,29 @@ export default function MapScreen() {
                   }}
                   style={styles.actionBtn}
                 />
-                {location && (turf.distance(
-                  turf.point([location.coords.longitude, location.coords.latitude]),
-                  turf.point([selectedBillboard.longitude, selectedBillboard.latitude]),
-                  { units: 'kilometers' }
-                ) * 1000) < 20 ? (
-                  <Button
-                    title="Launch AR Scanner"
-                    variant="primary"
-                    onPress={() => router.push('/ar-scanner')}
-                    style={[styles.actionBtn, styles.arLaunchBtn]}
-                    icon="camera"
-                  />
-                ) : (
-                  <Button
-                    title={isNavigating ? 'Routing...' : 'Get Directions'}
-                    variant="secondary"
-                    onPress={() => startNavigation(selectedBillboard)}
-                    style={styles.actionBtn}
-                    loading={isNavigating}
-                    disabled={isNavigating}
-                  />
-                )}
+                <Button
+                  title="Launch AR Scanner"
+                  variant="primary"
+                  onPress={handleLaunchARScanner}
+                  style={[styles.actionBtn, styles.arLaunchBtn]}
+                  icon="camera"
+                  loading={checkingArLaunch}
+                  disabled={checkingArLaunch}
+                />
+                <Button
+                  title={isNavigating ? 'Routing...' : 'Get Directions'}
+                  variant="secondary"
+                  onPress={() => startNavigation(selectedBillboard)}
+                  style={styles.actionBtn}
+                  loading={isNavigating}
+                  disabled={isNavigating || !location}
+                />
               </View>
+              {!selectedBillboard.image_target_url && (
+                <Text style={styles.arHintText}>
+                  AR target image is not configured for this billboard yet.
+                </Text>
+              )}
             </View>
           )}
         </BottomSheetView>
@@ -1168,11 +1230,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#007AFF',
   },
-  previewActions: { flexDirection: 'row', gap: 12 },
+  previewActions: { gap: 12 },
   actionBtn: { flex: 1 },
   arLaunchBtn: {
     backgroundColor: '#00C851',
     borderColor: '#00C851',
+  },
+  arHintText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: -4,
   },
   ghostWrapper: {
     width: 36,

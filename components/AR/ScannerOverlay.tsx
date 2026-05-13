@@ -21,43 +21,98 @@ interface ScannerOverlayProps {
   billboardId: string | null;
 }
 
+const normalizeExternalUrl = (rawUrl?: string | null) => {
+  if (!rawUrl) return null;
+
+  const trimmedUrl = rawUrl.trim();
+  if (!trimmedUrl) return null;
+
+  return /^https?:\/\//i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`;
+};
+
+const formatSaveErrorMessage = (error: any) => {
+  if (error?.code === '42501') {
+    return 'Database permissions are not configured for saved_items yet. Run the saved_items SQL migration in Supabase, then try again.';
+  }
+
+  if (error?.code === '23505') {
+    return 'This item is already in your wallet.';
+  }
+
+  return error?.message || 'Could not save. Please try again.';
+};
+
 const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, billboardId }) => {
   const [saving, setSaving] = useState(false);
 
-  if (!isDetected || !campaign) return null;
+  // Guard: Don't render if not detected or if campaign is missing required fields
+  if (
+    !isDetected || 
+    !campaign || 
+    !campaign.business_name || 
+    !campaign.title
+  ) {
+    return null;
+  }
 
   const handleAction = async (type: 'coupon' | 'billboard') => {
     try {
       setSaving(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      console.log('[ScannerOverlay] handleAction called:', { type, billboardId, campaignId: campaign?.id });
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      console.log('[ScannerOverlay] Auth check:', { user: user?.id, authError });
 
       if (!user) {
+        console.warn('[ScannerOverlay] No authenticated user found');
         Alert.alert("Login Required", "Please log in to save items to your wallet.");
         return;
       }
 
-      const { error } = await supabase
+      const insertPayload = {
+        user_id: user.id,
+        type,
+        campaign_id: type === 'coupon' ? campaign.id : null,
+        billboard_id: billboardId,
+      };
+      console.log('[ScannerOverlay] Insert payload:', insertPayload);
+      console.log('[ScannerOverlay] Campaign data:', campaign);
+
+      const { data, error } = await supabase
         .from('saved_items')
-        .insert({
-          user_id: user.id,
-          type,
-          campaign_id: type === 'coupon' ? campaign.id : null,
-          billboard_id: billboardId,
-        });
+        .insert(insertPayload)
+        .select();
+
+      console.log('[ScannerOverlay] Insert response:', { data, error });
 
       if (error) {
+        console.warn('[ScannerOverlay] Insert error details:', {
+          code: error.code,
+          message: error.message,
+          details: (error as any).details,
+          hint: (error as any).hint,
+        });
+
         if (error.code === '23505') {
           Alert.alert("Already Saved", `This ${type} is already in your wallet!`);
+        } else if (error.code === '42501') {
+          Alert.alert('Save Blocked', formatSaveErrorMessage(error));
         } else {
           throw error;
         }
       } else {
+        console.log('[ScannerOverlay] Save successful');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert("Success! 🎊", `${type === 'coupon' ? 'Coupon' : 'Ad'} saved to your wallet.`);
       }
     } catch (err: any) {
-      console.error('Save Error:', err.message);
-      Alert.alert("Save Failed", "Could not save. Please try again.");
+      console.warn('[ScannerOverlay] Save Error caught:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+        fullError: JSON.stringify(err, null, 2),
+      });
+      Alert.alert('Save Failed', formatSaveErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -71,9 +126,51 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
         ios: `maps:0,0?q=${latitude},${longitude}`,
         android: `geo:0,0?q=${latitude},${longitude}`
       });
-      Linking.openURL(url);
+
+      if (!url) {
+        console.warn('[ScannerOverlay] No maps URL generated', { latitude, longitude, platform: Platform.OS });
+        Alert.alert('Location not found', 'Coordinates for this billboard are not available.');
+        return;
+      }
+
+      Linking.openURL(url).catch((error) => {
+        console.error('[ScannerOverlay] Failed to open maps URL', { url, error });
+        Alert.alert('Open Maps Failed', 'Could not open your maps app on this device.');
+      });
     } else {
       Alert.alert("Location not found", "Coordinates for this billboard are not available.");
+    }
+  };
+
+  const openWebsite = async () => {
+    const normalizedUrl = normalizeExternalUrl(campaign?.website_url);
+    console.log('[ScannerOverlay] openWebsite called', {
+      rawUrl: campaign?.website_url,
+      normalizedUrl,
+    });
+
+    if (!normalizedUrl) {
+      Alert.alert('Link unavailable', 'This offer does not have a valid website link.');
+      return;
+    }
+
+    try {
+      const supported = await Linking.canOpenURL(normalizedUrl);
+      console.log('[ScannerOverlay] canOpenURL result', { normalizedUrl, supported });
+
+      if (!supported) {
+        Alert.alert('Link unavailable', 'This website link could not be opened on your device.');
+        return;
+      }
+
+      await Linking.openURL(normalizedUrl);
+    } catch (error) {
+      console.error('[ScannerOverlay] Failed to open website URL', {
+        rawUrl: campaign?.website_url,
+        normalizedUrl,
+        error,
+      });
+      Alert.alert('Open Link Failed', 'Could not open this website.');
     }
   };
 
@@ -89,8 +186,8 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
             <Ionicons name="gift" size={24} color={Colors.white} />
           </View>
           <View style={styles.textContainer}>
-            <Text style={styles.businessName}>{campaign.business_name}</Text>
-            <Text style={styles.title}>{campaign.title}</Text>
+            <Text style={styles.businessName}>{campaign.business_name || 'Brand'}</Text>
+            <Text style={styles.title}>{campaign.title || 'Offer'}</Text>
           </View>
         </View>
 
@@ -98,7 +195,10 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
           <View style={styles.row}>
             <TouchableOpacity
               style={[styles.btn, styles.primaryBtn]}
-              onPress={() => campaign.website_url && Linking.openURL(campaign.website_url)}
+              onPress={() => {
+                void openWebsite();
+              }}
+              disabled={!campaign.website_url}
             >
               <Ionicons name="globe-outline" size={20} color={Colors.white} />
               <Text style={styles.btnText}>Shop Now</Text>

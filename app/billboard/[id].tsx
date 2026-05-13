@@ -43,6 +43,28 @@ export default function BillboardDetailScreen() {
 
   const activeCampaign = billboard?.campaigns?.find((c: any) => c.is_active);
 
+  const getCampaignPreviewSource = (campaign: any, fallbackBillboard?: any): string | null => {
+    const mediaUrl = campaign?.media_url || null;
+    const billboardImage = fallbackBillboard?.image_target_url || billboard?.image_target_url || null;
+    const logo = campaign?.business_logo_url || null;
+    const isVideo = campaign?.media_type === 'video' || mediaUrl?.includes('.mp4') || mediaUrl?.includes('gtv-videos-bucket');
+
+    if (isVideo) {
+      return billboardImage || logo || null;
+    }
+
+    return mediaUrl || billboardImage || logo || null;
+  };
+
+  const detailMediaSource = activeCampaign
+    ? (activeCampaign.media_type === 'video' && activeCampaign.media_url
+      ? activeCampaign.media_url
+      : getCampaignPreviewSource(activeCampaign, billboard))
+    : null;
+
+  const detailMediaType: 'image' | 'video' =
+    activeCampaign?.media_type === 'video' && !!activeCampaign?.media_url ? 'video' : 'image';
+
   // ... (Keep your existing useEffects for Countdown and Fetching) ...
   useEffect(() => {
     if (!activeCampaign?.end_date) return;
@@ -214,10 +236,10 @@ export default function BillboardDetailScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Top Media Section */}
-        {activeCampaign && (
+        {activeCampaign && detailMediaSource && (
           <MediaViewer
-            url={activeCampaign.media_url}
-            type={activeCampaign.media_type as any}
+            url={detailMediaSource}
+            type={detailMediaType}
           />
         )}
 
@@ -316,15 +338,32 @@ export default function BillboardDetailScreen() {
             <View style={styles.nearbySection}>
               <Text style={styles.sectionTitle}>Nearby Offers</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearbyScroll}>
-                {nearbyBillboards.map((nb) => (
-                  <TouchableOpacity key={nb.id} style={styles.nearbyCard} onPress={() => router.push(`/billboard/${nb.id}`)}>
-                    <Image source={nb.campaigns?.[0]?.media_url} style={styles.nearbyImage} />
-                    <View style={styles.nearbyInfo}>
-                      <Text style={styles.nearbyBusiness}>{nb.campaigns?.[0]?.business_name}</Text>
-                      <Text style={styles.nearbyOffer} numberOfLines={1}>{nb.campaigns?.[0]?.title}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                {nearbyBillboards.map((nb) => {
+                  const nearbyCampaign = nb.campaigns?.find((c: any) => c.is_active) || nb.campaigns?.[0];
+                  const nearbyPreviewSource = getCampaignPreviewSource(nearbyCampaign, nb);
+
+                  return (
+                    <TouchableOpacity key={nb.id} style={styles.nearbyCard} onPress={() => router.push(`/billboard/${nb.id}`)}>
+                      {nearbyPreviewSource ? (
+                        <Image
+                          source={nearbyPreviewSource}
+                          style={styles.nearbyImage}
+                          contentFit="cover"
+                          transition={250}
+                          cachePolicy="memory-disk"
+                        />
+                      ) : (
+                        <View style={styles.nearbyImageFallback}>
+                          <Ionicons name="image-outline" size={20} color={Colors.textSecondary} />
+                        </View>
+                      )}
+                      <View style={styles.nearbyInfo}>
+                        <Text style={styles.nearbyBusiness}>{nearbyCampaign?.business_name || 'Offer'}</Text>
+                        <Text style={styles.nearbyOffer} numberOfLines={1}>{nearbyCampaign?.title || 'No title available'}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           )}
@@ -565,6 +604,13 @@ const styles = StyleSheet.create({
   nearbyImage: {
     width: '100%',
     height: 100,
+  },
+  nearbyImageFallback: {
+    width: '100%',
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
   },
   nearbyInfo: {
     padding: 12,
