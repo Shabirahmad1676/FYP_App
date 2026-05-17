@@ -20,6 +20,7 @@ import ARScene from '@/components/AR/ARScene';
 import { useBillboard } from '@/hooks/useBillboard';
 import ScannerOverlay from '@/components/AR/ScannerOverlay';
 import * as Haptics from 'expo-haptics';
+import { logEvent } from '@/lib/analytics';
 
 export default function ARScanScreen() {
   const router = useRouter();
@@ -30,12 +31,13 @@ export default function ARScanScreen() {
   // destroy and re-create the entire AR session.
   const arMountedRef = useRef(false);
   const [arMounted, setArMounted] = React.useState(false);
+  const [targetReady, setTargetReady] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   useEffect(() => {
     if (isFocused && !arMountedRef.current) {
       arMountedRef.current = true;
-      setArMounted(true);
     }
     if (!isFocused && arMountedRef.current) {
       // Only unmount if the screen truly lost focus (navigated away), not a flicker.
@@ -48,6 +50,14 @@ export default function ARScanScreen() {
       return () => clearTimeout(t);
     }
   }, [isFocused]);
+
+  useEffect(() => {
+    return () => {
+      arMountedRef.current = false;
+      setArMounted(false);
+      setTargetReady(false);
+    };
+  }, []);
 
   // 1. Data Layer: Hook for specific billboard
   const { billboard, campaign, loading: dataLoading, error: dataError } = useBillboard(id);
@@ -67,13 +77,12 @@ export default function ARScanScreen() {
 
   // Timeout Logic: Show help after 15 seconds
   useEffect(() => {
-    if (scanStatus === 'searching' && isFocused) {
-      const timer = setTimeout(() => {
-        setScanStatus('timeout');
-      }, 15000);
-      return () => clearTimeout(timer);
-    }
-  }, [scanStatus, isFocused]);
+    if (scanStatus !== 'searching' || !isFocused) return;
+    const timer = setTimeout(() => {
+      setScanStatus('timeout');
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [scanStatus, isFocused, retryCount]);
 
   // Permissions Check
   useEffect(() => {
@@ -92,24 +101,33 @@ export default function ARScanScreen() {
 
   // Configure Viro Image Target
   useEffect(() => {
-    if (billboard?.image_target_url) {
-      const targetName = `target_${billboard.id}`;
-      console.log('[ARScanScreen] registering image target:', {
-        targetName,
-        imageTargetUrl: billboard.image_target_url,
+    if (!billboard?.image_target_url) {
+      if (billboard) {
+        console.log('[ARScanScreen] billboard missing image_target_url:', billboard.id);
+      }
+      setTargetReady(false);
+      return;
+    }
+
+    const targetName = `target_${billboard.id}`;
+    console.log('[ARScanScreen] registering image target:', {
+      targetName,
+      imageTargetUrl: billboard.image_target_url,
+      physicalWidth: billboard.physical_width || 1,
+    });
+
+    ViroARTrackingTargets.createTargets({
+      [targetName]: {
+        source: { uri: billboard.image_target_url },
+        orientation: 'Up',
         physicalWidth: billboard.physical_width || 1,
-      });
-      
-      ViroARTrackingTargets.createTargets({
-        [targetName]: {
-          source: { uri: billboard.image_target_url },
-          orientation: 'Up',
-          physicalWidth: billboard.physical_width || 1,
-        },
-      });
-      console.log('[ARScanScreen] createTargets completed for:', targetName);
-    } else if (billboard) {
-      console.log('[ARScanScreen] billboard missing image_target_url:', billboard.id);
+      },
+    });
+    console.log('[ARScanScreen] createTargets completed for:', targetName);
+    setTargetReady(true);
+
+    if (arMountedRef.current) {
+      setArMounted(true);
     }
   }, [billboard]);
 
@@ -129,8 +147,9 @@ export default function ARScanScreen() {
       setIsDetected(true);
       setScanStatus('detected');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      logEvent('scan', detectedId, campaign?.id ?? null);
     }
-  }, [id]);
+  }, [id, campaign]);
 
   const handleLost = useCallback(() => {
     console.log('[ARScanScreen] handleLost called; returning to searching state');
@@ -143,10 +162,12 @@ export default function ARScanScreen() {
     targetId: id ? `target_${id}` : null,
     onDetected: handleDetected,
     onLost: handleLost,
-  }), [handleDetected, handleLost, id]);
+    isPaused: isDetected,
+  }), [handleDetected, handleLost, id, isDetected]);
 
   const retryScan = () => {
     setScanStatus('searching');
+    setRetryCount((count) => count + 1);
   };
 
   if (initializing || dataLoading) {
@@ -185,7 +206,7 @@ export default function ARScanScreen() {
 
   return (
     <View style={styles.container}>
-      {arMounted && (
+      {arMounted && targetReady && (
         <ViroARSceneNavigator
           initialScene={initialScene}
           autofocus={true}
@@ -231,6 +252,8 @@ export default function ARScanScreen() {
            isDetected={isDetected}
            campaign={campaign}
            billboardId={id}
+           latitude={billboard?.latitude}
+           longitude={billboard?.longitude}
         />
       </SafeAreaView>
     </View>

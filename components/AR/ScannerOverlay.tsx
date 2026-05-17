@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeOutDown } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
@@ -19,6 +20,8 @@ interface ScannerOverlayProps {
   isDetected: boolean;
   campaign: any;
   billboardId: string | null;
+  latitude?: number;
+  longitude?: number;
 }
 
 const normalizeExternalUrl = (rawUrl?: string | null) => {
@@ -42,20 +45,32 @@ const formatSaveErrorMessage = (error: any) => {
   return error?.message || 'Could not save. Please try again.';
 };
 
-const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, billboardId }) => {
-  const [saving, setSaving] = useState(false);
+const ScannerOverlay: React.FC<ScannerOverlayProps> = ({
+  isDetected,
+  campaign,
+  billboardId,
+  latitude,
+  longitude,
+}) => {
+  const [savingCoupon, setSavingCoupon] = useState(false);
+  const [savingAd, setSavingAd] = useState(false);
+  const router = useRouter();
 
-  // Guard: Don't render if not detected or if campaign is missing required fields
-  if (
-    !isDetected || 
-    !campaign || 
-    !campaign.business_name || 
-    !campaign.title
-  ) {
-    return null;
+  if (!isDetected) return null;
+
+  if (!campaign?.business_name || !campaign?.title) {
+    return (
+      <Animated.View entering={FadeInUp.duration(500)} style={styles.overlay}>
+        <View style={styles.card}>
+          <ActivityIndicator color="#fff" size="small" />
+          <Text style={styles.loadingStateText}>Loading offer...</Text>
+        </View>
+      </Animated.View>
+    );
   }
 
   const handleAction = async (type: 'coupon' | 'billboard') => {
+    const setSaving = type === 'coupon' ? setSavingCoupon : setSavingAd;
     try {
       setSaving(true);
       console.log('[ScannerOverlay] handleAction called:', { type, billboardId, campaignId: campaign?.id });
@@ -72,7 +87,7 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
       const insertPayload = {
         user_id: user.id,
         type,
-        campaign_id: type === 'coupon' ? campaign.id : null,
+        campaign_id: campaign.id,
         billboard_id: billboardId,
       };
       console.log('[ScannerOverlay] Insert payload:', insertPayload);
@@ -119,27 +134,32 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
   };
 
   const openMaps = () => {
-    const { latitude, longitude } = campaign.billboard || {};
-    if (latitude && longitude) {
-      // const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-      const url = Platform.select({
-        ios: `maps:0,0?q=${latitude},${longitude}`,
-        android: `geo:0,0?q=${latitude},${longitude}`
-      });
-
-      if (!url) {
-        console.warn('[ScannerOverlay] No maps URL generated', { latitude, longitude, platform: Platform.OS });
-        Alert.alert('Location not found', 'Coordinates for this billboard are not available.');
-        return;
-      }
-
-      Linking.openURL(url).catch((error) => {
-        console.error('[ScannerOverlay] Failed to open maps URL', { url, error });
-        Alert.alert('Open Maps Failed', 'Could not open your maps app on this device.');
-      });
-    } else {
+    if (!latitude || !longitude) {
       Alert.alert("Location not found", "Coordinates for this billboard are not available.");
+      return;
     }
+
+    const url = Platform.select({
+      ios: `maps:0,0?q=${latitude},${longitude}`,
+      android: `geo:0,0?q=${latitude},${longitude}`
+    });
+
+    if (!url) return;
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Open Maps Failed', 'Could not open your maps app.');
+    });
+  };
+
+  const handleCall = () => {
+    const phone = campaign?.contact;
+    if (!phone) {
+      Alert.alert("No number", "This business hasn't listed a phone number.");
+      return;
+    }
+    Linking.openURL(`tel:${phone}`).catch(() =>
+      Alert.alert('Call Failed', 'Could not open the dialer.')
+    );
   };
 
   const openWebsite = async () => {
@@ -205,32 +225,55 @@ const ScannerOverlay: React.FC<ScannerOverlayProps> = ({ isDetected, campaign, b
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={styles.btn}
+              onPress={handleCall}
+              disabled={!campaign.contact}
+            >
+              <Ionicons name="call-outline" size={20} color={Colors.white} />
+              <Text style={styles.btnText}>Call</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.row}>
+            <TouchableOpacity
               style={[styles.btn, styles.secondaryBtn]}
               onPress={() => handleAction('coupon')}
-              disabled={saving}
+              disabled={savingCoupon}
             >
-              {saving ? <ActivityIndicator color={Colors.white} /> : (
+              {savingCoupon ? <ActivityIndicator color={Colors.white} /> : (
                 <>
                   <Ionicons name="ticket-outline" size={20} color={Colors.white} />
                   <Text style={styles.btnText}>Get Coupon</Text>
                 </>
               )}
             </TouchableOpacity>
-          </View>
 
-          <View style={styles.row}>
             <TouchableOpacity
               style={styles.btn}
               onPress={() => handleAction('billboard')}
-              disabled={saving}
+              disabled={savingAd}
             >
-              <Ionicons name="heart-outline" size={20} color={Colors.white} />
-              <Text style={styles.btnText}>Save Ad</Text>
+              {savingAd ? <ActivityIndicator color={Colors.white} /> : (
+                <>
+                  <Ionicons name="heart-outline" size={20} color={Colors.white} />
+                  <Text style={styles.btnText}>Save Ad</Text>
+                </>
+              )}
             </TouchableOpacity>
+          </View>
 
+          <View style={styles.row}>
             <TouchableOpacity style={styles.btn} onPress={openMaps}>
               <Ionicons name="map-outline" size={20} color={Colors.white} />
-              <Text style={styles.btnText}>Open in Maps</Text>
+              <Text style={styles.btnText}>Open Maps</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: 'rgba(99,102,241,0.3)' }]}
+              onPress={() => router.push(`/billboard/${billboardId}`)}
+            >
+              <Ionicons name="information-circle-outline" size={20} color={Colors.white} />
+              <Text style={styles.btnText}>More Info</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -316,6 +359,12 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: '700',
     fontSize: 14,
+  },
+  loadingStateText: {
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 10,
+    fontSize: 13,
+    textAlign: 'center',
   },
 });
 

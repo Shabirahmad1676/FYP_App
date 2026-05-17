@@ -16,12 +16,14 @@ const makeNavigatorProps = (overrides: Partial<{
   onDetected: (id: string) => void;
   onLost: () => void;
   targetId: string | null;
+  isPaused: boolean;
 }> = {}) => ({
   sceneNavigator: {
     viroAppProps: {
       onDetected: jest.fn(),
       onLost: jest.fn(),
       targetId: null,
+      isPaused: false,
       ...overrides,
     },
   },
@@ -56,6 +58,13 @@ describe('ARScene', () => {
     expect(marker.props.target).toBe('target_billboard-42');
   });
 
+  test('does NOT render ViroARImageMarker when scanning is paused', () => {
+    const { UNSAFE_queryByType } = render(
+      <ARScene {...makeNavigatorProps({ targetId: 'target_billboard-42', isPaused: true })} />
+    );
+    expect(UNSAFE_queryByType(ViroARImageMarker as any)).toBeNull();
+  });
+
   // ── Tracking state machine ────────────────────────────────────────────────
 
   test('onTrackingUpdated: TRACKING_NORMAL does not call onLost', () => {
@@ -73,11 +82,14 @@ describe('ARScene', () => {
     expect(onLost).not.toHaveBeenCalled();
   });
 
-  test('onTrackingUpdated: non-normal state calls onLost', () => {
+  test('onTrackingUpdated: unavailable state calls onLost when anchor is active', () => {
     const onLost = jest.fn();
     const { UNSAFE_getByType } = render(
-      <ARScene {...makeNavigatorProps({ onLost })} />
+      <ARScene {...makeNavigatorProps({ onLost, targetId: 'target_bb-999' })} />
     );
+
+    const marker = UNSAFE_getByType(ViroARImageMarker as any);
+    marker.props.onAnchorFound();
 
     const scene = UNSAFE_getByType(ViroARScene as any);
     scene.props.onTrackingUpdated(
@@ -105,7 +117,7 @@ describe('ARScene', () => {
     expect(onDetected).toHaveBeenCalledWith('bb-999');
   });
 
-  test('onAnchorRemoved calls onLost', () => {
+  test('onAnchorRemoved calls onLost when marker was previously found', () => {
     const onLost = jest.fn();
     const { UNSAFE_getByType } = render(
       <ARScene
@@ -114,6 +126,7 @@ describe('ARScene', () => {
     );
 
     const marker = UNSAFE_getByType(ViroARImageMarker as any);
+    marker.props.onAnchorFound();
     marker.props.onAnchorRemoved();
 
     expect(onLost).toHaveBeenCalledTimes(1);

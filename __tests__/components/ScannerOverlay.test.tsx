@@ -44,6 +44,8 @@ const defaultProps = {
   isDetected: true,
   campaign: mockCampaign,
   billboardId: 'billboard-123',
+  latitude: 34.198,
+  longitude: 72.043,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,14 +61,18 @@ const mockAuthUser = (userId = 'user-xyz') => {
 };
 
 const mockInsertSuccess = () => {
+  const selectMock = jest.fn().mockResolvedValue({ data: [{}], error: null });
+  const insertMock = jest.fn().mockReturnValue({ select: selectMock });
   (supabase.from as jest.Mock).mockReturnValue({
-    insert: jest.fn().mockResolvedValue({ error: null }),
+    insert: insertMock,
   });
 };
 
 const mockInsertError = (code: string, message = 'DB error') => {
+  const selectMock = jest.fn().mockResolvedValue({ data: null, error: { code, message } });
+  const insertMock = jest.fn().mockReturnValue({ select: selectMock });
   (supabase.from as jest.Mock).mockReturnValue({
-    insert: jest.fn().mockResolvedValue({ error: { code, message } }),
+    insert: insertMock,
   });
 };
 
@@ -90,11 +96,11 @@ describe('ScannerOverlay', () => {
     expect(toJSON()).toBeNull();
   });
 
-  test('renders nothing when campaign is null', () => {
-    const { toJSON } = render(
+  test('renders loading state when detected but campaign is missing', () => {
+    const { getByText } = render(
       <ScannerOverlay {...defaultProps} campaign={null} />
     );
-    expect(toJSON()).toBeNull();
+    expect(getByText('Loading offer...')).toBeTruthy();
   });
 
   test('renders campaign details when detected', () => {
@@ -106,7 +112,8 @@ describe('ScannerOverlay', () => {
   // ── Save to Wallet — happy path ───────────────────────────────────────────
 
   test('Get Coupon: inserts into saved_items with correct payload', async () => {
-    const insertMock = jest.fn().mockResolvedValue({ error: null });
+    const selectMock = jest.fn().mockResolvedValue({ data: [{}], error: null });
+    const insertMock = jest.fn().mockReturnValue({ select: selectMock });
     (supabase.from as jest.Mock).mockReturnValue({ insert: insertMock });
 
     const { getByText } = render(<ScannerOverlay {...defaultProps} />);
@@ -122,14 +129,15 @@ describe('ScannerOverlay', () => {
   });
 
   test('Save Ad: inserts into saved_items with type "billboard"', async () => {
-    const insertMock = jest.fn().mockResolvedValue({ error: null });
+    const selectMock = jest.fn().mockResolvedValue({ data: [{}], error: null });
+    const insertMock = jest.fn().mockReturnValue({ select: selectMock });
     (supabase.from as jest.Mock).mockReturnValue({ insert: insertMock });
 
     const { getByText } = render(<ScannerOverlay {...defaultProps} />);
     await act(async () => { fireEvent.press(getByText('Save Ad')); });
 
     expect(insertMock).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'billboard', campaign_id: null })
+      expect.objectContaining({ type: 'billboard', campaign_id: 'campaign-abc' })
     );
   });
 
@@ -169,7 +177,7 @@ describe('ScannerOverlay', () => {
     await act(async () => { fireEvent.press(getByText('Get Coupon')); });
 
     expect(Alert.alert).toHaveBeenCalledWith(
-      'Save Failed',
+      'Save Blocked',
       expect.any(String)
     );
   });
@@ -198,7 +206,7 @@ describe('ScannerOverlay', () => {
     jest.spyOn(Platform, 'select').mockImplementationOnce((spec: any) => spec.ios);
 
     const { getByText } = render(<ScannerOverlay {...defaultProps} />);
-    await act(async () => { fireEvent.press(getByText('Open in Maps')); });
+    await act(async () => { fireEvent.press(getByText('Open Maps')); });
 
     expect(Linking.openURL).toHaveBeenCalledWith(
       expect.stringMatching(/^maps:/)
@@ -209,7 +217,7 @@ describe('ScannerOverlay', () => {
     jest.spyOn(Platform, 'select').mockImplementationOnce((spec: any) => spec.android);
 
     const { getByText } = render(<ScannerOverlay {...defaultProps} />);
-    await act(async () => { fireEvent.press(getByText('Open in Maps')); });
+    await act(async () => { fireEvent.press(getByText('Open Maps')); });
 
     expect(Linking.openURL).toHaveBeenCalledWith(
       expect.stringMatching(/^geo:/)
@@ -217,15 +225,10 @@ describe('ScannerOverlay', () => {
   });
 
   test('shows alert when billboard has no coordinates', async () => {
-    const campaignNoCoords = {
-      ...mockCampaign,
-      billboard: { latitude: null, longitude: null },
-    };
-
     const { getByText } = render(
-      <ScannerOverlay {...defaultProps} campaign={campaignNoCoords} />
+      <ScannerOverlay {...defaultProps} latitude={undefined} longitude={undefined} />
     );
-    await act(async () => { fireEvent.press(getByText('Open in Maps')); });
+    await act(async () => { fireEvent.press(getByText('Open Maps')); });
 
     expect(Alert.alert).toHaveBeenCalledWith(
       'Location not found',
