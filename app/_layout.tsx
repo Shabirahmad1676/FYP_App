@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { useFonts } from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
@@ -170,6 +171,9 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+  });
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -179,6 +183,12 @@ export default function RootLayout() {
   const [hasSelectedInterests, setHasSelectedInterests] = useState<boolean | null>(null);
 
   const { setupGeofencing } = useGeoNotifications();
+
+  useEffect(() => {
+    if (fontError) {
+      console.warn('[RootLayout] Icon font load failed:', fontError);
+    }
+  }, [fontError]);
 
   useEffect(() => {
     async function initializeApp() {
@@ -222,6 +232,10 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  if (!fontsLoaded && !fontError) {
+    return <View style={{ flex: 1, backgroundColor: Colors.black }} />;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -3,27 +3,24 @@ import {
   ViroARScene,
   ViroTrackingStateConstants,
   ViroARImageMarker,
+  ViroNode,
+  ViroText,
+  ViroAmbientLight,
+  ViroAnimations,
 } from '@reactvision/react-viro';
 
-interface ARSceneProps {
-  onDetected: (billboardId: string) => void;
-  onLost: () => void;
-  targetId: string | null;
-}
+ViroAnimations.registerAnimations({
+  pulse: {
+    properties: { opacity: 0.3 },
+    easing: 'EaseInEaseOut',
+    duration: 900,
+  },
+});
 
 const ARScene = (props: any) => {
-  const { onDetected, onLost, targetId } = props.sceneNavigator.viroAppProps;
-  const lastTrackingStateRef = React.useRef<string | null>(null);
+  const { onDetected, onLost, targetId, isPaused } = props.sceneNavigator.viroAppProps;
+  const lastStateRef = React.useRef<number | null>(null);
   const hasActiveAnchorRef = React.useRef(false);
-  const lastAnchorLogAtRef = React.useRef(0);
-  const isTrackingNormal =
-    ViroTrackingStateConstants.TRACKING_NORMAL !== undefined
-      ? stateIsNormalFactory(ViroTrackingStateConstants.TRACKING_NORMAL)
-      : (state: number) => state === 3;
-  const isTrackingUnavailable =
-    ViroTrackingStateConstants.TRACKING_UNAVAILABLE !== undefined
-      ? stateIsUnavailableFactory(ViroTrackingStateConstants.TRACKING_UNAVAILABLE)
-      : (state: number) => state === 1;
 
   React.useEffect(() => {
     console.log('[ARScene] mounted with targetId:', targetId);
@@ -32,50 +29,40 @@ const ARScene = (props: any) => {
     };
   }, [targetId]);
 
-  const onTrackingUpdated = (state: any, reason: any) => {
-    const trackingLabel = isTrackingNormal(state)
-      ? 'TRACKING_NORMAL'
-      : isTrackingUnavailable(state)
-        ? 'TRACKING_UNAVAILABLE'
-        : `TRACKING_${String(state)}`;
+  const onTrackingUpdated = (state: number, reason: any) => {
+    if (lastStateRef.current === state) return;
+    lastStateRef.current = state;
 
-    if (lastTrackingStateRef.current !== trackingLabel) {
-      lastTrackingStateRef.current = trackingLabel;
-      console.log('[ARScene] tracking update:', { state, reason, targetId, trackingLabel });
-    }
+    const NORMAL = ViroTrackingStateConstants.TRACKING_NORMAL;
+    const UNAVAILABLE = ViroTrackingStateConstants.TRACKING_UNAVAILABLE;
 
-    if (isTrackingNormal(state)) {
-    } else if (isTrackingUnavailable(state)) {
-      if (targetId && hasActiveAnchorRef.current) {
+    if (state === NORMAL) {
+      console.log('[ARScene] tracking: NORMAL');
+    } else if (state === UNAVAILABLE) {
+      console.log('[ARScene] tracking: UNAVAILABLE, reason:', reason);
+      if (hasActiveAnchorRef.current) {
         hasActiveAnchorRef.current = false;
         onLost();
       }
+    } else {
+      console.log('[ARScene] tracking: LIMITED, state:', state);
     }
   };
 
   return (
     <ViroARScene onTrackingUpdated={onTrackingUpdated}>
-      {targetId && (
+      <ViroAmbientLight color="#ffffff" intensity={300} />
+
+      {targetId && !isPaused && (
         <ViroARImageMarker
           target={targetId}
-          onAnchorUpdated={(anchor: any) => {
-            const now = Date.now();
-            if (now - lastAnchorLogAtRef.current >= 2000) {
-              lastAnchorLogAtRef.current = now;
-              console.log('[ARScene] anchor updated snapshot:', {
-                targetId,
-                position: anchor?.position,
-                rotation: anchor?.rotation,
-              });
-            }
-          }}
           onAnchorFound={() => {
             if (hasActiveAnchorRef.current) {
               return;
             }
 
             hasActiveAnchorRef.current = true;
-            console.log('[ARScene] anchor found for target:', targetId);
+            console.log('[ARScene] anchor found:', targetId);
             const billboardId = targetId.replace('target_', '');
             onDetected(billboardId);
           }}
@@ -85,21 +72,34 @@ const ARScene = (props: any) => {
             }
 
             hasActiveAnchorRef.current = false;
-            console.log('[ARScene] anchor removed for target:', targetId);
+            console.log('[ARScene] anchor removed:', targetId);
             onLost();
           }}
-        />
+        >
+          <ViroNode position={[0, 0, 0.02]}>
+            <ViroText
+              text="TAP FOR OFFER"
+              position={[0, 0.1, 0]}
+              style={{
+                fontFamily: 'Arial',
+                fontSize: 24,
+                color: '#00C851',
+                fontWeight: '800',
+                textAlign: 'center',
+              }}
+              width={1.2}
+              height={0.2}
+              animation={{
+                name: 'pulse',
+                run: true,
+                loop: true,
+              }}
+            />
+          </ViroNode>
+        </ViroARImageMarker>
       )}
     </ViroARScene>
   );
 };
-
-function stateIsNormalFactory(normalValue: number) {
-  return (state: number) => state === normalValue;
-}
-
-function stateIsUnavailableFactory(unavailableValue: number) {
-  return (state: number) => state === unavailableValue;
-}
 
 export default ARScene;

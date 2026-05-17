@@ -29,7 +29,7 @@ jest.mock('@reactvision/react-viro', () => {
     ViroAnimations: {
       registerAnimations: jest.fn(),
     },
-    ViroFlexView: ({ onClick, onPress, children }: any) => React.createElement(View, { onPress: onClick || onPress }, children),
+    ViroFlexView: ({ onClick, onTap, onPress, children }: any) => React.createElement(View, { onPress: onTap || onClick || onPress }, children),
     ViroText: ({ text }: any) => React.createElement(Text, null, text),
     Viro3DObject: (props: any) => React.createElement('Viro3DObject', props),
     ViroDirectionalLight: (props: any) => React.createElement('ViroDirectionalLight', props),

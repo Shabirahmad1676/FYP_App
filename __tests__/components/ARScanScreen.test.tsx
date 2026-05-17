@@ -118,9 +118,11 @@ describe('ARScanScreen — Camera Permissions', () => {
       jest.fn().mockResolvedValue({ status: 'denied', granted: false }),
     ]);
 
-    const { findByText } = render(<ARScanScreen />);
+    const { queryByText } = render(<ARScanScreen />);
 
-    await findByText(/camera permission is required/i);
+    await waitFor(() => {
+      expect(queryByText(/camera permission is required/i)).toBeTruthy();
+    }, { timeout: 10000 });
   });
 
   test('mounts ViroARSceneNavigator when permission is granted and screen is focused', async () => {
@@ -252,6 +254,7 @@ describe('ARScanScreen — Detection Handlers', () => {
       expect(navigator.props.viroAppProps.targetId).toBe('target_billboard-123');
       expect(typeof navigator.props.viroAppProps.onDetected).toBe('function');
       expect(typeof navigator.props.viroAppProps.onLost).toBe('function');
+      expect(navigator.props.viroAppProps.isPaused).toBe(false);
       expect(navigator.props.autofocus).toBe(true);
       expect(navigator.props.videoQuality).toBe('High');
     });
@@ -270,6 +273,11 @@ describe('ARScanScreen — Detection Handlers', () => {
     // After detection the scanning instructions disappear
     await waitFor(() => {
       expect(queryByText(/point camera at the billboard/i)).toBeNull();
+    });
+
+    await waitFor(() => {
+      const navigator = UNSAFE_getByType(ViroARSceneNavigator as any);
+      expect(navigator.props.viroAppProps.isPaused).toBe(true);
     });
   });
 

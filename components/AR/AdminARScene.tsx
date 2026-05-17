@@ -36,13 +36,22 @@ const AdminARScene = (props: AdminARSceneProps) => {
   } = props.sceneNavigator.viroAppProps;
   
   const selectorRef = useRef<any>(null);
+  const [glbPreviewFailed, setGlbPreviewFailed] = useState(false);
+  const isValidGlbUrl = typeof glbUrl === 'string' && /^https?:\/\/.+\.glb(\?.*)?$/i.test(glbUrl.trim());
 
   const handlePlaneSelected = async (anchor: any) => {
     if (!isHosting) return;
+    const hostCloudAnchor = props.sceneNavigator?.hostCloudAnchor;
+
+    if (typeof hostCloudAnchor !== 'function') {
+      console.warn('hostCloudAnchor is not available in this ReactVision build');
+      setScanStatus('idle');
+      return;
+    }
     
     setScanStatus('hosting');
     try {
-      const result = await props.sceneNavigator.hostCloudAnchor(anchor.anchorId, 365);
+      const result = await hostCloudAnchor(anchor.anchorId, 365);
       
       if (result.success && result.cloudAnchorId) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -81,13 +90,17 @@ const AdminARScene = (props: AdminARSceneProps) => {
           />
 
           {/* Ghost 3D Model Alignment */}
-          {glbUrl && (
+          {isValidGlbUrl && !glbPreviewFailed && (
             <Viro3DObject
-              source={{ uri: glbUrl }}
+              source={{ uri: glbUrl!.trim() }}
               type="GLB"
               position={[0, 0, 0]}
               scale={[1, 1, 1]}
               materials={["ghost"]}
+              onError={(error: unknown) => {
+                console.warn('AdminARScene GLB preview failed', error);
+                setGlbPreviewFailed(true);
+              }}
             />
           )}
         </ViroNode>

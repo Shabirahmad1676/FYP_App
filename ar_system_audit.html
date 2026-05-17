@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0a0a0f;
+  color: #fff;
+  padding: 20px;
+  font-size: 13px;
+}
+
+.page-title { font-size: 11px; font-weight: 800; letter-spacing: 3px; color: #6366f1; text-transform: uppercase; margin-bottom: 4px; }
+.page-sub { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+.page-desc { font-size: 11px; color: #444; margin-bottom: 20px; }
+
+/* Verdict bar */
+.verdict-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.vcard {
+  background: #111;
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid #1e1e2e;
+  text-align: center;
+}
+.vnum { font-size: 26px; font-weight: 800; }
+.vlabel { font-size: 9px; color: #555; margin-top: 2px; letter-spacing: 0.5px; }
+.red { color: #ef4444; } .orange { color: #f97316; } .yellow { color: #eab308; } .green { color: #10b981; }
+
+/* Issue cards */
+.issue {
+  background: #111;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  border-left: 3px solid #333;
+}
+.issue.crash { border-left-color: #ef4444; }
+.issue.bug { border-left-color: #f97316; }
+.issue.warn { border-left-color: #eab308; }
+.issue.ok { border-left-color: #10b981; }
+
+.issue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #1a1a2a;
+  flex-wrap: wrap;
+}
+.badge {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 1px;
+  padding: 2px 7px; border-radius: 99px; flex-shrink: 0;
+  text-transform: uppercase;
+}
+.badge-crash { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.badge-bug { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+.badge-warn { background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+.badge-ok { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.issue-title { font-size: 12px; font-weight: 700; flex: 1; min-width: 200px; }
+.file-tag { font-size: 9px; color: #444; font-family: monospace; margin-left: auto; }
+
+.issue-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.code {
+  background: #0d0d14;
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  line-height: 1.65;
+  border: 1px solid #1e1e2e;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.bad { color: #ef4444; }
+.good { color: #10b981; }
+.dim { color: #555; }
+
+.note {
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #999;
+}
+.note-bad { background: rgba(239,68,68,0.04); border: 1px solid rgba(239,68,68,0.12); }
+.note-good { background: rgba(16,185,129,0.04); border: 1px solid rgba(16,185,129,0.12); }
+.note-warn { background: rgba(234,179,8,0.04); border: 1px solid rgba(234,179,8,0.12); }
+.lbl { font-size: 9px; font-weight: 800; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+.lbl-bad { color: #ef4444; }
+.lbl-good { color: #10b981; }
+.lbl-warn { color: #eab308; }
+
+.divider { border: none; border-top: 1px solid #1a1a2e; margin: 16px 0; }
+.section { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: #6366f1; text-transform: uppercase; margin: 16px 0 10px; }
+
+/* System flow */
+.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.fnode {
+  background: #111; border: 1px solid #1e1e2e;
+  border-radius: 8px; padding: 6px 10px;
+  font-size: 10px; font-weight: 700; color: #aaa;
+  position: relative;
+}
+.fnode.ok-node { border-color: rgba(16,185,129,0.3); color: #10b981; }
+.fnode.bad-node { border-color: rgba(239,68,68,0.3); color: #ef4444; }
+.fnode.warn-node { border-color: rgba(234,179,8,0.3); color: #eab308; }
+.arr { color: #444; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="page-title">Senior CTO Audit — 4-File System Review</div>
+<div class="page-sub">ARScene · ARScanScreen · ScannerOverlay · useBillboard (inferred)</div>
+<div class="page-desc">Every file reviewed as a system. Issues ranked by impact on the user.</div>
+
+<div class="verdict-bar">
+  <div class="vcard"><div class="vnum red">1</div><div class="vlabel">Crash risk</div></div>
+  <div class="vcard"><div class="vnum orange">3</div><div class="vlabel">Logic bugs</div></div>
+  <div class="vcard"><div class="vnum yellow">4</div><div class="vlabel">Warnings</div></div>
+  <div class="vcard"><div class="vnum green">8</div><div class="vlabel">Good patterns</div></div>
+</div>
+
+<!-- SYSTEM FLOW -->
+<div class="section">System Data Flow</div>
+<div class="flow">
+  <div class="fnode ok-node">useBillboard(id)</div>
+  <div class="arr">→</div>
+  <div class="fnode ok-node">ARScanScreen</div>
+  <div class="arr">→</div>
+  <div class="fnode ok-node">ViroARTrackingTargets</div>
+  <div class="arr">→</div>
+  <div class="fnode warn-node">ARScene (props.sceneNavigator)</div>
+  <div class="arr">→</div>
+  <div class="fnode bad-node">onDetected fires</div>
+  <div class="arr">→</div>
+  <div class="fnode ok-node">ScannerOverlay</div>
+</div>
+
+<!-- CRASH -->
+<div class="issue crash">
+  <div class="issue-head">
+    <span class="badge badge-crash">Crash Risk</span>
+    <span class="issue-title">ARScene rendered before ViroARTrackingTargets.createTargets completes</span>
+    <span class="file-tag">ARScanScreen.tsx + ARScene.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="note note-bad">
+      <span class="lbl lbl-bad">WHY THIS CRASHES</span>
+      arMounted becomes true on first focus. ViroARSceneNavigator renders immediately. The <code>useEffect</code> that calls createTargets depends on <code>billboard</code> from useBillboard — which is an async fetch. On a slow connection, ARScene is fully mounted and ViroARImageMarker tries to reference <code>target_[id]</code> BEFORE createTargets has run. Viro cannot find the target, logs a native error, and on some Android devices this causes a hard crash instead of a graceful miss.
+    </div>
+    <div class="code"><span class="dim">// ARScanScreen.tsx — current (race condition)</span>
+<span class="bad">// arMounted → true immediately on focus
+// createTargets → runs only after billboard fetch resolves
+// Gap between these two = crash window</span>
+
+<span class="dim">// Fix: gate arMounted on BOTH focus AND target registration</span>
+<span class="good">const [targetReady, setTargetReady] = useState(false);
+
+useEffect(() => {
+  if (!billboard?.image_target_url) return;
+  const targetName = `target_${billboard.id}`;
+  ViroARTrackingTargets.createTargets({
+    [targetName]: {
+      source: { uri: billboard.image_target_url },
+      orientation: 'Up',
+      physicalWidth: billboard.physical_width || 1,
+    },
+  });
+  setTargetReady(true); // AR can now mount safely
+}, [billboard]);
+
+// Only mount ViroARSceneNavigator after target is registered
+{arMounted && targetReady && (
+  &lt;ViroARSceneNavigator ... /&gt;
+)}</span></div>
+  </div>
+</div>
+
+<!-- BUG 1 -->
+<div class="issue bug">
+  <div class="issue-head">
+    <span class="badge badge-bug">Logic Bug</span>
+    <span class="issue-title">ARScene has no AR overlay — detection fires but nothing appears on the billboard</span>
+    <span class="file-tag">ARScene.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="note note-bad">
+      <span class="lbl lbl-bad">THE PROBLEM</span>
+      ViroARImageMarker has no children. When the physical billboard is detected, the anchor is found, onDetected fires correctly — but nothing appears overlaid on the actual billboard in camera view. The user sees the ScannerOverlay UI card at the bottom of the screen, but the billboard itself has no AR content on top of it. This makes the app feel like a QR scanner, not an AR app.
+    </div>
+    <div class="code"><span class="dim">// Current — marker fires correctly but renders nothing in AR space</span>
+<span class="bad">&lt;ViroARImageMarker target={targetId} onAnchorFound={...}&gt;
+  {/* EMPTY — no children */}
+&lt;/ViroARImageMarker&gt;</span>
+
+<span class="good">// Fix — add a ViroNode child so something appears on the billboard
+&lt;ViroARImageMarker target={targetId} onAnchorFound={...}&gt;
+  &lt;ViroNode position={[0, 0, 0.05]}&gt;
+    &lt;ViroQuad
+      width={campaign?.physical_width || 1}
+      height={campaign?.physical_width ? campaign.physical_width * 0.6 : 0.6}
+      materials={["billboard_glow"]}
+    /&gt;
+    &lt;ViroText
+      text={campaign?.discount || ""}
+      position={[0, 0.1, 0.01]}
+      style={{ fontSize: 28, color: "#00C851", fontWeight: "bold" }}
+      width={1.5}
+      height={0.3}
+    /&gt;
+  &lt;/ViroNode&gt;
+&lt;/ViroARImageMarker&gt;</span></div>
+  </div>
+</div>
+
+<!-- BUG 2 -->
+<div class="issue bug">
+  <div class="issue-head">
+    <span class="badge badge-bug">Logic Bug</span>
+    <span class="issue-title">ScannerOverlay openMaps uses campaign.billboard.latitude — but campaign has no billboard nested object</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="code"><span class="dim">// ScannerOverlay.tsx line ~76</span>
+<span class="bad">const { latitude, longitude } = campaign.billboard || {};
+// campaign is the campaigns table row — it has no .billboard property
+// This always destructures undefined → latitude/longitude always undefined
+// → Always shows "Coordinates not available" alert</span>
+
+<span class="good">// Fix — billboardId and coordinates need to come from the parent
+// Pass lat/lng as separate props from ARScanScreen which has billboard data
+
+// In ARScanScreen.tsx:
+&lt;ScannerOverlay
+  isDetected={isDetected}
+  campaign={campaign}
+  billboardId={id}
+  latitude={billboard?.latitude}   // ← add
+  longitude={billboard?.longitude} // ← add
+/&gt;
+
+// In ScannerOverlay.tsx:
+interface ScannerOverlayProps {
+  isDetected: boolean;
+  campaign: any;
+  billboardId: string | null;
+  latitude?: number;   // ← add
+  longitude?: number;  // ← add
+}
+
+const openMaps = () => {
+  if (latitude && longitude) { // use props directly
+    const url = Platform.select({
+      ios: `maps:0,0?q=${latitude},${longitude}`,
+      android: `geo:0,0?q=${latitude},${longitude}`
+    });
+    Linking.openURL(url!).catch(...);
+  }
+};</span></div>
+  </div>
+</div>
+
+<!-- BUG 3 -->
+<div class="issue bug">
+  <div class="issue-head">
+    <span class="badge badge-bug">Logic Bug</span>
+    <span class="issue-title">stateIsNormalFactory / stateIsUnavailableFactory called incorrectly at module level</span>
+    <span class="file-tag">ARScene.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="code"><span class="dim">// ARScene.tsx — current</span>
+<span class="bad">const isTrackingNormal =
+  ViroTrackingStateConstants.TRACKING_NORMAL !== undefined
+    ? stateIsNormalFactory(ViroTrackingStateConstants.TRACKING_NORMAL)
+    : (state: number) => state === 3;
+// This runs at MODULE load time, not inside the component.
+// If ViroTrackingStateConstants hasn't initialized yet (cold start),
+// the fallback (state === 3) is used permanently for that session.</span>
+
+<span class="good">// Fix — simplest and most reliable approach:
+// Don't abstract it. Compare directly inside the component.
+const onTrackingUpdated = (state: any, reason: any) => {
+  const NORMAL = ViroTrackingStateConstants.TRACKING_NORMAL;
+  const UNAVAILABLE = ViroTrackingStateConstants.TRACKING_UNAVAILABLE;
+  
+  if (state === NORMAL) {
+    console.log('[ARScene] tracking normal');
+  } else if (state === UNAVAILABLE) {
+    if (hasActiveAnchorRef.current) {
+      hasActiveAnchorRef.current = false;
+      onLost();
+    }
+  }
+};</span></div>
+  </div>
+</div>
+
+<!-- WARNINGS -->
+<div class="section">Warnings (Won't Crash But Will Hurt)</div>
+
+<div class="issue warn">
+  <div class="issue-head">
+    <span class="badge badge-warn">Warning</span>
+    <span class="issue-title">arMounted latch never resets on back-navigation — second scan session broken</span>
+    <span class="file-tag">ARScanScreen.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="note note-warn">
+      <span class="lbl lbl-warn">SCENARIO</span>
+      User scans billboard A → goes back → opens billboard B. arMountedRef.current is still true from session A. The 500ms delay logic never fires the reset because the screen was fully unmounted (not just blurred). On remount, arMounted is already true from the useState initial render — but targetReady is false for the new billboard. The AR session starts with no registered target. Result: second scan never works.
+    </div>
+    <div class="code"><span class="good">// Fix — reset on unmount, not just on focus loss
+useEffect(() => {
+  return () => {
+    // Cleanup on screen unmount (back navigation)
+    arMountedRef.current = false;
+    setArMounted(false);
+    setTargetReady(false);
+  };
+}, []);</span></div>
+  </div>
+</div>
+
+<div class="issue warn">
+  <div class="issue-head">
+    <span class="badge badge-warn">Warning</span>
+    <span class="issue-title">handleAction sends campaign_id: null for type='billboard' — FK constraint will reject it</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="code"><span class="bad">// type === 'billboard' path sends:
+{ user_id, type: 'billboard', campaign_id: null, billboard_id }
+// If saved_items.campaign_id has a NOT NULL constraint → insert fails silently
+// If it has FK constraint to campaigns → null may be accepted but is semantically wrong</span>
+
+<span class="good">// Fix — always include campaign_id when available
+const insertPayload = {
+  user_id: user.id,
+  type,
+  campaign_id: campaign.id, // always send it — it's the same campaign
+  billboard_id: billboardId,
+};</span></div>
+  </div>
+</div>
+
+<div class="issue warn">
+  <div class="issue-head">
+    <span class="badge badge-warn">Warning</span>
+    <span class="issue-title">15-second timeout resets to 'searching' on retry but timer re-registers immediately</span>
+    <span class="file-tag">ARScanScreen.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="code"><span class="bad">// retryScan() sets scanStatus = 'searching'
+// The timeout useEffect depends on [scanStatus, isFocused]
+// So it immediately starts a NEW 15s timer
+// But if user clicks retry at 14s → timer fires again at 15s (1 second later)
+// This is jarring UX — feels broken</span>
+
+<span class="good">// Fix — use a counter to force timer reset
+const [retryCount, setRetryCount] = useState(0);
+
+const retryScan = () => {
+  setScanStatus('searching');
+  setRetryCount(c => c + 1); // forces new timer
+};
+
+useEffect(() => {
+  if (scanStatus !== 'searching' || !isFocused) return;
+  const timer = setTimeout(() => setScanStatus('timeout'), 15000);
+  return () => clearTimeout(timer);
+}, [scanStatus, isFocused, retryCount]); // add retryCount</span></div>
+  </div>
+</div>
+
+<div class="issue warn">
+  <div class="issue-head">
+    <span class="badge badge-warn">Warning</span>
+    <span class="issue-title">ScannerOverlay guard checks campaign.business_name — but renders before data loads, showing nothing</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+  <div class="issue-body">
+    <div class="note note-warn">
+      <span class="lbl lbl-warn">EDGE CASE</span>
+      If isDetected becomes true before campaign data arrives (network lag), ScannerOverlay returns null silently. The user gets haptic feedback but sees nothing. Add a loading state inside the overlay instead of returning null.
+    </div>
+    <div class="code"><span class="good">if (!isDetected) return null;
+
+// Detected but data still loading
+if (!campaign?.business_name) {
+  return (
+    &lt;Animated.View entering={FadeInUp.duration(500)} style={styles.overlay}&gt;
+      &lt;View style={styles.card}&gt;
+        &lt;ActivityIndicator color="#fff" /&gt;
+        &lt;Text style={{ color: '#fff', marginTop: 8 }}&gt;Loading offer...&lt;/Text&gt;
+      &lt;/View&gt;
+    &lt;/Animated.View&gt;
+  );
+}</span></div>
+  </div>
+</div>
+
+<!-- GOOD PATTERNS -->
+<div class="section">✅ What You Got Right (Keep These)</div>
+
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">arMountedRef + 500ms debounce prevents AR session flicker — correct pattern</span>
+    <span class="file-tag">ARScanScreen.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">initialScene ref prevents ViroARSceneNavigator re-creation on state changes</span>
+    <span class="file-tag">ARScanScreen.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">hasActiveAnchorRef prevents duplicate onDetected calls — correct deduplication</span>
+    <span class="file-tag">ARScene.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">useMemo on viroAppProps prevents unnecessary prop re-renders into native AR bridge</span>
+    <span class="file-tag">ARScanScreen.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">normalizeExternalUrl handles missing http:// prefix — real-world data is messy</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">formatSaveErrorMessage with error code mapping — user-friendly, not raw DB errors</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">Linking.canOpenURL check before openURL — correct, many devs skip this</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+</div>
+<div class="issue ok">
+  <div class="issue-head">
+    <span class="badge badge-ok">Good</span>
+    <span class="issue-title">FadeInUp / FadeOutDown animations on overlay — correct use of reanimated</span>
+    <span class="file-tag">ScannerOverlay.tsx</span>
+  </div>
+</div>
+
+</body>
+</html>
