@@ -1,4 +1,4 @@
-import { getDistance, formatDistance } from '../../lib/utils';
+import { getDistance, formatDistance, normalizeBillboardCoordinates } from '../../lib/utils';
 
 describe('Location Utils (Level 1 Unit Tests)', () => {
   
@@ -42,6 +42,42 @@ describe('Location Utils (Level 1 Unit Tests)', () => {
 
     test('handles exactly 1km boundary', () => {
       expect(formatDistance(1.0)).toBe('1.0 km away');
+    });
+  });
+
+  describe('normalizeBillboardCoordinates', () => {
+    test('normalizes GeoJSON-style coords arrays into latitude and longitude', () => {
+      expect(normalizeBillboardCoordinates({ coords: [72.0433, 34.1983] })).toEqual({
+        latitude: 34.1983,
+        longitude: 72.0433,
+      });
+    });
+
+    test('normalizes string latitude and longitude values', () => {
+      expect(normalizeBillboardCoordinates({ latitude: '34.1983', longitude: '72.0433' })).toEqual({
+        latitude: 34.1983,
+        longitude: 72.0433,
+      });
+    });
+
+    test('recovers legacy three-value coords arrays by using the last two values', () => {
+      expect(normalizeBillboardCoordinates({ coords: ['ignored', 34.1983, 72.0433] })).toEqual({
+        latitude: 34.1983,
+        longitude: 72.0433,
+      });
+    });
+
+    test('prefers coords array over conflicting scalar fields', () => {
+      expect(
+        normalizeBillboardCoordinates({
+          latitude: 72.0233857110734,
+          longitude: 34.14758298542,
+          coords: [72.0233857110734, 34.14758298542],
+        })
+      ).toEqual({
+        latitude: 34.14758298542,
+        longitude: 72.0233857110734,
+      });
     });
   });
 

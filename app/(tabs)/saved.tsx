@@ -130,9 +130,9 @@ export default function SavedOffersScreen() {
 
         <View style={styles.cardFooter}>
           <View style={styles.metaInfo}>
-            <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
+            {/* <Ionicons name="time-outline" size={14} color={Colors.textSecondary} /> */}
             <Text style={styles.metaText}>
-              Expires {new Date(campaign.end_date).toLocaleDateString()}
+              {/* Expires {new Date(campaign.end_date).toLocaleDateString()} */}
             </Text>
           </View>
 

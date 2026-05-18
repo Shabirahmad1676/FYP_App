@@ -1,5 +1,9 @@
 import '@testing-library/jest-native/extend-expect';
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
 // Polyfills for Expo 54 + Jest environment issues 
 if (typeof global.performance === 'undefined') {
   global.performance = { now: jest.fn() };
@@ -67,6 +71,7 @@ jest.mock('@/lib/supabase', () => ({
     },
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
       insert: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
       delete: jest.fn().mockReturnThis(),
