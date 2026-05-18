@@ -58,11 +58,7 @@ export default function ScanScreen() {
     if (checkingArSupport) return;
 
     if (arSupported) {
-      Alert.alert(
-        'Select Billboard First',
-        'Open Map, tap a billboard, then launch AR Scanner from the billboard preview.'
-      );
-      router.push('/(tabs)/map');
+      router.push('/ar-scanner');
       return;
     }
 

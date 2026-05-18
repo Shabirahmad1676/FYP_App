@@ -37,7 +37,9 @@ import Button from '@/components/ui/Button';
 import Skeleton from '@/components/ui/Skeleton';
 import { sendLocalNotification } from '@/lib/notifications';
 import { logEvent } from '@/lib/analytics';
+import { getDistance as getDistanceKm, normalizeBillboardCoordinates } from '@/lib/utils';
 import {
+  RouteInfo,
   fetchWalkingRoute,
   formatDistance,
   formatDuration,
@@ -146,6 +148,41 @@ export default function MapScreen() {
     });
   }, [filteredBillboards, location?.coords.latitude, location?.coords.longitude]);
 
+  const resolveNavigationTarget = (billboard: any): [number, number] | null => {
+    const normalized = normalizeBillboardCoordinates(billboard);
+    let targetLat = normalized.latitude;
+    let targetLng = normalized.longitude;
+
+    if (targetLat === null || targetLng === null || !Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+      return null;
+    }
+
+    const canSwap = Math.abs(targetLng) <= 90 && Math.abs(targetLat) <= 180;
+    if (location && canSwap) {
+      const direct = getDistanceKm(
+        location.coords.latitude,
+        location.coords.longitude,
+        targetLat,
+        targetLng
+      );
+      const swapped = getDistanceKm(
+        location.coords.latitude,
+        location.coords.longitude,
+        targetLng,
+        targetLat
+      );
+
+      if (swapped < direct) {
+        const correctedLat = targetLng;
+        const correctedLng = targetLat;
+        targetLat = correctedLat;
+        targetLng = correctedLng;
+      }
+    }
+
+    return [targetLng, targetLat];
+  };
+
   // ── User interests ────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchInterests = async () => {
@@ -171,12 +208,13 @@ export default function MapScreen() {
     if (params.navigateId && billboards.length > 0 && location) {
       const target = billboards.find(b => b.id === params.navigateId);
       if (target && !navigationMode) {
+        const targetCoords = resolveNavigationTarget(target);
         setSelectedBillboard(target);
         // Delay slightly more to ensure Mapbox and GPS are fully synced
         setTimeout(() => {
           startNavigation(target);
           cameraRef.current?.setCamera({
-            centerCoordinate: [target.longitude, target.latitude],
+            centerCoordinate: targetCoords || [target.longitude, target.latitude],
             zoomLevel: 15,
             animationDuration: 1000
           });
@@ -432,12 +470,19 @@ export default function MapScreen() {
       Alert.alert('Location needed', 'Enable location to get directions.');
       return;
     }
+
+    const targetCoords = resolveNavigationTarget(billboard);
+    if (!targetCoords) {
+      Alert.alert('Location error', 'This offer has invalid map coordinates.');
+      return;
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsNavigating(true);
     try {
       const data = await fetchWalkingRoute(
         [location.coords.longitude, location.coords.latitude],
-        [billboard.longitude, billboard.latitude]
+        targetCoords
       );
 
       if (data) {
@@ -554,6 +599,17 @@ export default function MapScreen() {
   };
 
   const nextManeuverType = routeInfo?.steps?.[0]?.maneuver?.type || 'depart';
+  const selectedTargetCoords = selectedBillboard
+    ? resolveNavigationTarget(selectedBillboard)
+    : null;
+  const selectedDistanceMeters =
+    location && selectedTargetCoords
+      ? turf.distance(
+          turf.point([location.coords.longitude, location.coords.latitude]),
+          turf.point(selectedTargetCoords),
+          { units: 'meters' }
+        )
+      : null;
 
   return (
     <View style={styles.container}>
@@ -853,15 +909,11 @@ export default function MapScreen() {
               </View>
 
               {/* Quick distance pill */}
-              {location && (
+              {location && selectedDistanceMeters !== null && (
                 <View style={styles.distancePill}>
                   <Ionicons 
                     name={
-                      (turf.distance(
-                        turf.point([location.coords.longitude, location.coords.latitude]),
-                        turf.point([selectedBillboard.longitude, selectedBillboard.latitude]),
-                        { units: 'kilometers' }
-                      ) * 1000) < 20 
+                      selectedDistanceMeters < 20 
                         ? "location" 
                         : "walk-outline"
                     } 
@@ -869,13 +921,7 @@ export default function MapScreen() {
                     color="#007AFF" 
                   />
                   <Text style={styles.distancePillText}>
-                    {formatDistance(
-                      turf.distance(
-                        turf.point([location.coords.longitude, location.coords.latitude]),
-                        turf.point([selectedBillboard.longitude, selectedBillboard.latitude]),
-                        { units: 'meters' }
-                      )
-                    )}{' '}
+                    {formatDistance(selectedDistanceMeters)}{' '}
                     away
                   </Text>
                 </View>
@@ -908,7 +954,7 @@ export default function MapScreen() {
                   disabled={isNavigating || !location}
                 />
               </View>
-              {!selectedBillboard.image_target_url && (
+              {(selectedBillboard.image_target_url === null || selectedBillboard.image_target_url === '') && (
                 <Text style={styles.arHintText}>
                   AR target image is not configured for this billboard yet.
                 </Text>

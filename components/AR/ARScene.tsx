@@ -18,9 +18,16 @@ ViroAnimations.registerAnimations({
 });
 
 const ARScene = (props: any) => {
-  const { onDetected, onLost, targetId, isPaused } = props.sceneNavigator.viroAppProps;
+  const { onDetected, onLost, targetId, targetIds, isPaused, onTrackingChange } = props.sceneNavigator.viroAppProps;
   const lastStateRef = React.useRef<number | null>(null);
   const hasActiveAnchorRef = React.useRef(false);
+  // Merge single targetId and targetIds array into one list
+  const allTargetIds: string[] = React.useMemo(() => {
+    const ids = new Set<string>();
+    if (targetId) ids.add(targetId);
+    if (targetIds) targetIds.forEach((t: string) => ids.add(t));
+    return Array.from(ids);
+  }, [targetId, targetIds]);
 
   React.useEffect(() => {
     console.log('[ARScene] mounted with targetId:', targetId);
@@ -29,41 +36,67 @@ const ARScene = (props: any) => {
     };
   }, [targetId]);
 
-  const onTrackingUpdated = (state: number, reason: any) => {
-    if (lastStateRef.current === state) return;
-    lastStateRef.current = state;
+  // const onTrackingUpdated = (state: number, reason: any) => {
+  //   if (lastStateRef.current === state) return;
+  //   lastStateRef.current = state;
 
-    const NORMAL = ViroTrackingStateConstants.TRACKING_NORMAL;
-    const UNAVAILABLE = ViroTrackingStateConstants.TRACKING_UNAVAILABLE;
+  //   const NORMAL = ViroTrackingStateConstants.TRACKING_NORMAL;
+  //   const UNAVAILABLE = ViroTrackingStateConstants.TRACKING_UNAVAILABLE;
 
-    if (state === NORMAL) {
-      console.log('[ARScene] tracking: NORMAL');
-    } else if (state === UNAVAILABLE) {
-      console.log('[ARScene] tracking: UNAVAILABLE, reason:', reason);
-      if (hasActiveAnchorRef.current) {
-        hasActiveAnchorRef.current = false;
-        onLost();
-      }
-    } else {
-      console.log('[ARScene] tracking: LIMITED, state:', state);
-    }
-  };
+  //   if (state === NORMAL) {
+  //     console.log('[ARScene] tracking: NORMAL');
+  //   } else if (state === UNAVAILABLE) {
+  //     console.log('[ARScene] tracking: UNAVAILABLE, reason:', reason);
+  //     if (hasActiveAnchorRef.current) {
+  //       hasActiveAnchorRef.current = false;
+  //       onLost();
+  //     }
+  //   } else {
+  //     console.log('[ARScene] tracking: LIMITED, state:', state);
+  //   }
+  // };
+
+
+  // Inside ARScene.tsx
+const onTrackingUpdated = (state: number, reason: any) => {
+  if (lastStateRef.current === state) return;
+  lastStateRef.current = state;
+
+  const NORMAL = ViroTrackingStateConstants.TRACKING_NORMAL;
+  const UNAVAILABLE = ViroTrackingStateConstants.TRACKING_UNAVAILABLE;
+  const LIMITED = ViroTrackingStateConstants.TRACKING_LIMITED;
+
+  if (state === NORMAL) {
+    console.log('[DEBUG-AR] Tracking Engine Status: NORMAL (Camera matrix aligned)');
+    console.log('[DEBUG-AR] Active Target list currently inside native memory:', allTargetIds);
+    onTrackingChange?.('NORMAL');
+  } else if (state === LIMITED) {
+    console.log('[DEBUG-AR] Tracking Engine Status: LIMITED. Reason code:', reason);
+    onTrackingChange?.(`LIMITED(${String(reason)})`);
+    // Reason 1 = Searching for features, Reason 2 = Device moving too fast
+  } else if (state === UNAVAILABLE) {
+    console.log('[DEBUG-AR] Tracking Engine Status: UNAVAILABLE. Reason:', reason);
+    onTrackingChange?.(`UNAVAILABLE(${String(reason)})`);
+  }
+};
+
 
   return (
     <ViroARScene onTrackingUpdated={onTrackingUpdated}>
       <ViroAmbientLight color="#ffffff" intensity={300} />
 
-      {targetId && !isPaused && (
+      {allTargetIds.length > 0 && !isPaused && allTargetIds.map((tid) => (
         <ViroARImageMarker
-          target={targetId}
+          key={tid}
+          target={tid}
           onAnchorFound={() => {
             if (hasActiveAnchorRef.current) {
               return;
             }
 
             hasActiveAnchorRef.current = true;
-            console.log('[ARScene] anchor found:', targetId);
-            const billboardId = targetId.replace('target_', '');
+            console.log('[ARScene] anchor found:', tid);
+            const billboardId = tid.replace('target_', '');
             onDetected(billboardId);
           }}
           onAnchorRemoved={() => {
@@ -72,7 +105,7 @@ const ARScene = (props: any) => {
             }
 
             hasActiveAnchorRef.current = false;
-            console.log('[ARScene] anchor removed:', targetId);
+            console.log('[ARScene] anchor removed:', tid);
             onLost();
           }}
         >
@@ -97,7 +130,7 @@ const ARScene = (props: any) => {
             />
           </ViroNode>
         </ViroARImageMarker>
-      )}
+      ))}
     </ViroARScene>
   );
 };
